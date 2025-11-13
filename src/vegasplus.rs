@@ -1,0 +1,343 @@
+//! The VEGAS+ integrator, which adds adaptive stratified sampling.
+
+use crate::grid::Grid;
+use crate::integrand::Integrand;
+use crate::vegas::VegasResult;
+use rand::{Rng, SeedableRng};
+use rand_pcg::Pcg64;
+use rayon::prelude::*;
+
+/// Stores the state of a single hypercube for stratified sampling.
+#[derive(Debug, Clone)]
+struct Hypercube {
+    /// The number of samples to be evaluated in this hypercube.
+    n_samples: usize,
+    /// The estimated variance of the integrand within this hypercube
+    /// from the last iteration.
+    variance: f64,
+}
+
+impl Default for Hypercube {
+    fn default() -> Self {
+        Hypercube {
+            n_samples: 2,
+            variance: 0.0,
+        }
+    }
+}
+
+/// The VEGAS+ Monte Carlo integrator.
+pub struct VegasPlus {
+    dim: usize,
+    n_iter: usize,
+    n_eval: usize,
+    rng: Pcg64,
+    grids: Vec<Grid>,
+    beta: f64,
+    n_strat: usize,
+    hypercubes: Vec<Hypercube>,
+}
+
+// Struct to hold the results of processing a single hypercube
+struct HypercubeResult {
+    sum_f: f64,
+    sum_f2: f64,
+    variance: f64,
+    d_updates: Vec<Vec<f64>>,
+}
+
+impl VegasPlus {
+    pub fn new(
+        dim: usize,
+        n_iter: usize,
+        n_eval: usize,
+        n_bins: usize,
+        alpha: f64,
+        n_strat: usize,
+        beta: f64,
+    ) -> Self {
+        assert!(n_strat > 0, "Number of stratifications must be positive.");
+        let n_hypercubes = n_strat.pow(dim as u32);
+        assert!(
+            n_eval >= 2 * n_hypercubes,
+            "n_eval is too small for the given number of dimensions and stratifications."
+        );
+
+        let grids = (0..dim).map(|_| Grid::new(n_bins, alpha)).collect();
+        let hypercubes = vec![Hypercube::default(); n_hypercubes];
+
+        let mut vegas_plus = VegasPlus {
+            dim,
+            n_iter,
+            n_eval,
+            rng: Pcg64::from_entropy(),
+            grids,
+            beta,
+            n_strat,
+            hypercubes,
+        };
+        vegas_plus.reallocate_samples();
+        vegas_plus
+    }
+
+    /// Integrates the given function using the VEGAS+ algorithm.
+    pub fn integrate<F: Integrand + Sync>(&mut self, integrand: &F) -> VegasResult {
+        assert_eq!(integrand.dim(), self.dim);
+
+        let mut iter_results = Vec::new();
+        let mut iter_errors = Vec::new();
+
+        for iter in 0..self.n_iter {
+            let (iter_val, iter_err) = self.run_iteration(integrand);
+
+            if iter > 0 {
+                iter_results.push(iter_val);
+                iter_errors.push(iter_err);
+            }
+
+            for grid in &mut self.grids {
+                grid.refine();
+            }
+            self.reallocate_samples();
+        }
+
+        self.combine_results(&iter_results, &iter_errors)
+    }
+
+    fn run_iteration<F: Integrand + Sync>(&mut self, integrand: &F) -> (f64, f64) {
+        for grid in &mut self.grids {
+            grid.reset_importance_data();
+        }
+
+        let n_bins = self.grids[0].n_bins();
+        let seeds: Vec<u64> = (0..self.hypercubes.len()).map(|_| self.rng.gen()).collect();
+
+        let results: Vec<HypercubeResult> = seeds
+            .into_par_iter()
+            .enumerate()
+            .map(|(h_idx, seed)| {
+                let mut seed_array = [0u8; 32];
+                seed_array[..8].copy_from_slice(&seed.to_le_bytes());
+                let mut thread_rng = Pcg64::from_seed(seed_array);
+                let n_samples_h = self.hypercubes[h_idx].n_samples;
+                let mut point = vec![0.0; self.dim];
+                let mut bin_indices = vec![0; self.dim];
+                let mut d_updates_thread =
+                    (0..self.dim).map(|_| vec![0.0; n_bins]).collect::<Vec<_>>();
+
+                let mut sum_f_h = 0.0;
+                let mut sum_f2_h = 0.0;
+
+                if n_samples_h == 0 {
+                    return HypercubeResult {
+                        sum_f: 0.0,
+                        sum_f2: 0.0,
+                        variance: 0.0,
+                        d_updates: d_updates_thread,
+                    };
+                }
+
+                for _ in 0..n_samples_h {
+                    let mut jacobian = 1.0;
+                    let mut y_vec = vec![0.0; self.dim];
+
+                    let h_coords = self.get_hypercube_coords(h_idx);
+                    for d in 0..self.dim {
+                        let y_rand = thread_rng.gen::<f64>();
+                        let strat_width = 1.0 / self.n_strat as f64;
+                        y_vec[d] = (h_coords[d] as f64 + y_rand) * strat_width;
+                    }
+
+                    for d in 0..self.dim {
+                        let (bin_idx, x_val, jac_contrib) = self.grids[d].map(y_vec[d]);
+                        point[d] = x_val;
+                        bin_indices[d] = bin_idx;
+                        jacobian *= jac_contrib;
+                    }
+
+                    let f_val = integrand.eval(&point);
+                    let weighted_f = f_val * jacobian;
+                    sum_f_h += weighted_f;
+                    sum_f2_h += weighted_f * weighted_f;
+
+                    let d_val = (weighted_f * weighted_f) / self.n_eval as f64;
+                    for d in 0..self.dim {
+                        d_updates_thread[d][bin_indices[d]] += d_val;
+                    }
+                }
+
+                let avg_f_h = sum_f_h / n_samples_h as f64;
+                let avg_f2_h = sum_f2_h / n_samples_h as f64;
+                let var_g_h = (avg_f2_h - avg_f_h.powi(2)).max(0.0)
+                    * (n_samples_h as f64 / (n_samples_h - 1) as f64);
+
+                HypercubeResult {
+                    sum_f: sum_f_h,
+                    sum_f2: sum_f2_h,
+                    variance: var_g_h.sqrt(),
+                    d_updates: d_updates_thread,
+                }
+            })
+            .collect();
+
+        let mut total_value = 0.0;
+        let mut total_variance = 0.0;
+        let hypercube_volume = (1.0 / self.n_strat as f64).powi(self.dim as i32);
+
+        for (h_idx, result) in results.iter().enumerate() {
+            let n_samples_h = self.hypercubes[h_idx].n_samples;
+
+            if n_samples_h > 0 {
+                let avg_g_h = result.sum_f / n_samples_h as f64;
+                total_value += hypercube_volume * avg_g_h;
+            }
+
+            if n_samples_h > 1 {
+                let avg_g_h = result.sum_f / n_samples_h as f64;
+                let avg_g2_h = result.sum_f2 / n_samples_h as f64;
+                let var_g_h = (avg_g2_h - avg_g_h.powi(2)).max(0.0)
+                    * (n_samples_h as f64 / (n_samples_h - 1) as f64);
+                total_variance += hypercube_volume.powi(2) * var_g_h / n_samples_h as f64;
+            }
+
+            self.hypercubes[h_idx].variance = result.variance;
+            for d in 0..self.dim {
+                for i in 0..n_bins {
+                    self.grids[d].d[i] += result.d_updates[d][i];
+                }
+            }
+        }
+
+        let error = total_variance.sqrt();
+
+        (total_value, error)
+    }
+
+    /// Converts a hypercube index to its coordinates in the stratified grid.
+    fn get_hypercube_coords(&self, index: usize) -> Vec<usize> {
+        let mut coords = vec![0; self.dim];
+        let mut current_index = index;
+        for d in (0..self.dim).rev() {
+            coords[d] = current_index % self.n_strat;
+            current_index /= self.n_strat;
+        }
+        coords
+    }
+
+    fn reallocate_samples(&mut self) {
+        let total_variance_damped: f64 = self
+            .hypercubes
+            .iter()
+            .map(|h| h.variance.powf(self.beta))
+            .sum();
+
+        if total_variance_damped <= 0.0 {
+            let samples_per_cube = (self.n_eval / self.hypercubes.len()).max(2);
+            for cube in &mut self.hypercubes {
+                cube.n_samples = samples_per_cube;
+            }
+            return;
+        }
+
+        let mut total_allocated = 0;
+        for cube in &mut self.hypercubes {
+            let fraction = cube.variance.powf(self.beta) / total_variance_damped;
+            let desired_samples = (self.n_eval as f64 * fraction) as usize;
+            cube.n_samples = desired_samples.max(2);
+            total_allocated += cube.n_samples;
+        }
+
+        let remainder = self.n_eval.saturating_sub(total_allocated);
+        if remainder > 0 {
+            let mut sorted_cubes: Vec<(usize, f64)> = self
+                .hypercubes
+                .iter()
+                .map(|h| h.variance)
+                .enumerate()
+                .collect();
+            sorted_cubes.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+            let n_hypercubes = self.hypercubes.len();
+            for i in 0..remainder {
+                self.hypercubes[sorted_cubes[i % n_hypercubes].0].n_samples += 1;
+            }
+        }
+    }
+
+    fn combine_results(&self, values: &[f64], errors: &[f64]) -> VegasResult {
+        let mut weighted_sum = 0.0;
+        let mut total_weight = 0.0;
+
+        for (&val, &err) in values.iter().zip(errors.iter()) {
+            if err > 0.0 {
+                let weight = 1.0 / (err * err);
+                weighted_sum += val * weight;
+                total_weight += weight;
+            }
+        }
+
+        if total_weight == 0.0 {
+            return VegasResult {
+                value: 0.0,
+                error: 0.0,
+                chi2_dof: 0.0,
+            };
+        }
+
+        let final_value = weighted_sum / total_weight;
+        let final_error = (1.0 / total_weight).sqrt();
+        let dof = (values.len() - 1).max(1) as f64;
+        let chi2 = values
+            .iter()
+            .zip(errors.iter())
+            .fold(0.0, |acc, (&val, &err)| {
+                if err > 0.0 {
+                    acc + ((val - final_value) / err).powi(2)
+                } else {
+                    acc
+                }
+            });
+
+        VegasResult {
+            value: final_value,
+            error: final_error,
+            chi2_dof: chi2 / dof,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::integrand::Integrand;
+
+    struct GaussianIntegrand;
+
+    impl Integrand for GaussianIntegrand {
+        fn dim(&self) -> usize {
+            2
+        }
+
+        fn eval(&self, x: &[f64]) -> f64 {
+            let u = x[0];
+            let v = x[1];
+            let x_mapped = 2.0 * u - 1.0;
+            let y_mapped = 2.0 * v - 1.0;
+            let jacobian = 4.0;
+
+            jacobian * (-(x_mapped.powi(2)) - y_mapped.powi(2)).exp()
+        }
+    }
+
+    const ANALYTICAL_RESULT: f64 = 2.230985;
+
+    #[test]
+    fn test_integrate_gaussian_plus() {
+        let integrand = GaussianIntegrand;
+        let mut vegas_plus = VegasPlus::new(2, 10, 20_000, 50, 0.5, 4, 0.75);
+        let result = vegas_plus.integrate(&integrand);
+
+        assert!((result.value - ANALYTICAL_RESULT).abs() < 5.0 * result.error);
+        assert!(result.chi2_dof < 5.0);
+    }
+}

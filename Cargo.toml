@@ -1,0 +1,14 @@
+[package]
+name = "vegas-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rand = "0.8"
+rayon = "1.5"
+rand_pcg = "0.3"
+mpi = { version = "0.7", optional = true }
+
+[features]
+default = []
+mpi = ["dep:mpi"]
