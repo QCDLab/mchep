@@ -1,0 +1,24 @@
+[package]
+name = "mchep_pyapi"
+authors = ["Tanjona R. Rabemananjara <tanjona.hepc@gmail.com>"]
+description = "Python bindings to MCHEP Rust library"
+readme = "README.md"
+
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+categories.workspace = true
+keywords.workspace = true
+
+[lib]
+name = "mchep"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.21", features = ["extension-module"] }
+mchep = { path = "../mchep" }
+
+[features]
+default = []
+mpi = ["mchep/mpi"]

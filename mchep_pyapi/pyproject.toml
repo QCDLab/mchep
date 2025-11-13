@@ -1,0 +1,43 @@
+[build-system]
+requires = ["maturin>=0.13.4"]
+build-backend = "maturin"
+
+[project]
+name = "mchep"
+requires-python = ">=3.7"
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+  "Natural Language :: English",
+  "Operating System :: MacOS",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Rust",
+  "Topic :: Scientific/Engineering :: Physics",
+  "Topic :: Scientific/Engineering :: Mathematics",
+]
+dynamic = ["version"]
+readme = "README.md"
+
+[project.optional-dependencies]
+test = ["pytest", "pytest-cov"]
+
+[project.urls]
+homepage = "https://github.com/tanjona/mchep"
+documentation = "https://github.com/tanjona/mchep#readme"
+changelog = "https://github.com/tanjona/mchep/blob/main/CHANGELOG.md"
+
+[tool.maturin]
+bindings = "pyo3"
+strip = true
+
+[tool.pytest.ini_options]
+testpaths = ['tests/']
+addopts = [
+  '--cov=mchep_py',
+  '--cov-report=html',
+  '--cov-report=xml',
+  '--strict-markers',
+]

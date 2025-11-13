@@ -230,7 +230,13 @@ mod tests {
         let mut vegas = Vegas::new(10, 10_000, 50, 0.5, boundaries);
         let result = vegas.integrate(&integrand);
 
-        assert!((result.value - ANALYTICAL_RESULT).abs() < 5.0 * result.error);
-        assert!(result.chi2_dof < 5.0);
+        assert!(
+            (result.value - ANALYTICAL_RESULT).abs() < 2.0 * result.error,
+            "Analytical={} vs. MCHEP={}+/-{}",
+            ANALYTICAL_RESULT,
+            result.value,
+            result.error
+        );
+        assert!(result.chi2_dof < 2.0, "chi2_dof: {}", result.chi2_dof);
     }
 }

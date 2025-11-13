@@ -1,0 +1,153 @@
+//! VEGAS interface.
+
+use pyo3::prelude::*;
+use pyo3::types::PyList;
+
+use mchep::integrand::Integrand;
+use mchep::vegas::{Vegas, VegasResult};
+use mchep::vegasplus::VegasPlus;
+
+// A wrapper for Python callables to implement the Integrand trait
+#[pyclass(name = "Integrand")]
+struct PyIntegrand {
+    callable: PyObject,
+    dim: usize,
+}
+
+impl Integrand for PyIntegrand {
+    fn dim(&self) -> usize {
+        self.dim
+    }
+
+    fn eval(&self, x: &[f64]) -> f64 {
+        Python::with_gil(|py| {
+            let args = (PyList::new_bound(py, x),);
+            self.callable.call1(py, args).unwrap().extract(py).unwrap()
+        })
+    }
+}
+
+#[pymethods]
+impl PyIntegrand {
+    #[new]
+    fn new(callable: PyObject, dim: usize) -> Self {
+        PyIntegrand { callable, dim }
+    }
+}
+
+#[pyclass(name = "VegasResult")]
+#[derive(Debug, Clone, Copy)]
+struct PyVegasResult {
+    #[pyo3(get)]
+    value: f64,
+    #[pyo3(get)]
+    error: f64,
+    #[pyo3(get)]
+    chi2_dof: f64,
+}
+
+impl From<VegasResult> for PyVegasResult {
+    fn from(result: VegasResult) -> Self {
+        PyVegasResult {
+            value: result.value,
+            error: result.error,
+            chi2_dof: result.chi2_dof,
+        }
+    }
+}
+
+#[pyclass(name = "Vegas")]
+struct PyVegas {
+    vegas: Vegas,
+}
+
+#[pymethods]
+impl PyVegas {
+    #[new]
+    #[pyo3(signature = (n_iter, n_eval, n_bins, alpha, boundaries))]
+    fn new(
+        n_iter: usize,
+        n_eval: usize,
+        n_bins: usize,
+        alpha: f64,
+        boundaries: Vec<(f64, f64)>,
+    ) -> Self {
+        PyVegas {
+            vegas: Vegas::new(n_iter, n_eval, n_bins, alpha, &boundaries),
+        }
+    }
+
+    fn integrate(&mut self, integrand: &PyIntegrand) -> PyVegasResult {
+        self.vegas.integrate(integrand).into()
+    }
+}
+
+#[pyclass(name = "VegasPlus")]
+struct PyVegasPlus {
+    vegas_plus: VegasPlus,
+}
+
+#[pymethods]
+impl PyVegasPlus {
+    #[new]
+    #[pyo3(signature = (n_iter, n_eval, n_bins, alpha, n_strat, beta, boundaries))]
+    fn new(
+        n_iter: usize,
+        n_eval: usize,
+        n_bins: usize,
+        alpha: f64,
+        n_strat: usize,
+        beta: f64,
+        boundaries: Vec<(f64, f64)>,
+    ) -> Self {
+        PyVegasPlus {
+            vegas_plus: VegasPlus::new(n_iter, n_eval, n_bins, alpha, n_strat, beta, &boundaries),
+        }
+    }
+
+    fn integrate(&mut self, integrand: &PyIntegrand) -> PyVegasResult {
+        self.vegas_plus.integrate(integrand).into()
+    }
+
+    #[cfg(feature = "mpi")]
+    fn integrate_mpi(&mut self, _py: Python, integrand: &PyIntegrand) -> PyVegasResult {
+        use mpi::traits::*;
+        let universe = mpi::initialize().unwrap();
+        let world = universe.world();
+        self.vegas_plus.integrate_mpi(integrand, &world).into()
+    }
+}
+
+/// Registers the `VEGAS` submodules with the parent Python module.
+///
+/// This function is typically called during the initialization of the
+/// `MCHEP` Python package to expose the `VEGAS` and `VEGAPLUS` classes.
+///
+/// Parameters
+/// ----------
+/// `parent_module` : pyo3.Bound[pyo3.types.PyModule]
+///     The parent Python module to which the `VEGAS` submodule will be added.
+///
+/// Returns
+/// -------
+/// pyo3.PyResult<()>
+///     `Ok(())` if the registration is successful, or an error if the submodule
+///     cannot be created or added.
+///
+/// # Errors
+///
+/// Raises an error if the (sub)module is not found or cannot be registered.
+pub fn register(parent_module: &Bound<'_, PyModule>) -> PyResult<()> {
+    let m = PyModule::new_bound(parent_module.py(), "vegas")?;
+    m.setattr(pyo3::intern!(m.py(), "__doc__"), "Interface to Vegas")?;
+    pyo3::py_run!(
+        parent_module.py(),
+        m,
+        "import sys; sys.modules['mchep.vegas'] = m"
+    );
+    m.add_class::<PyIntegrand>()?;
+    m.add_class::<PyVegasResult>()?;
+    m.add_class::<PyVegas>()?;
+    m.add_class::<PyVegasPlus>()?;
+    parent_module.add_submodule(&m)
+}
