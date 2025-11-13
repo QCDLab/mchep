@@ -1,14 +1,24 @@
-[package]
-name = "mchep"
+[workspace]
+members = ["mchep"]
+resolver = "2"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/tanjona/mchep"
+categories = ["science", "algorithms"]
+keywords = ["monte-carlo", "integration", "physics"]
 
-[dependencies]
+[workspace.dependencies]
 rand = "0.8"
 rayon = "1.5"
 rand_pcg = "0.3"
-mpi = { version = "0.7", optional = true }
+mpi = { version = "0.7" }
 
-[features]
-default = []
-mpi = ["dep:mpi"]
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
