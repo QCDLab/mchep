@@ -1,7 +1,5 @@
 //! VEGAS interface.
 
-//! VEGAS interface.
-
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
@@ -25,22 +23,13 @@ impl Integrand for PyIntegrand {
     fn eval(&self, x: &[f64]) -> f64 {
         Python::with_gil(|py| {
             let args = (PyList::new_bound(py, x),);
-            match self.callable.call1(py, args) {
-                Ok(result) => match result.extract::<f64>(py) {
-                    Ok(val) => val,
-                    Err(e) => {
-                        eprintln!(
-                            "Warning: integrand returned non-float value: {:?}, using 0.0",
-                            e
-                        );
-                        0.0
-                    }
-                },
-                Err(e) => {
-                    eprintln!("Error calling Python integrand: {:?}", e);
+            self.callable
+                .call1(py, args)
+                .and_then(|result| result.extract::<f64>(py))
+                .unwrap_or_else(|err| {
+                    eprintln!("Error evaluating integrand: {err}");
                     0.0
-                }
-            }
+                })
         })
     }
 }
