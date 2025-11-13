@@ -1,5 +1,8 @@
 //! VEGAS interface.
 
+//! VEGAS interface.
+
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 
@@ -22,10 +25,29 @@ impl Integrand for PyIntegrand {
     fn eval(&self, x: &[f64]) -> f64 {
         Python::with_gil(|py| {
             let args = (PyList::new_bound(py, x),);
-            self.callable.call1(py, args).unwrap().extract(py).unwrap()
+            match self.callable.call1(py, args) {
+                Ok(result) => match result.extract::<f64>(py) {
+                    Ok(val) => val,
+                    Err(e) => {
+                        eprintln!(
+                            "Warning: integrand returned non-float value: {:?}, using 0.0",
+                            e
+                        );
+                        0.0
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Error calling Python integrand: {:?}", e);
+                    0.0
+                }
+            }
         })
     }
 }
+
+// CRITICAL: Mark as Send + Sync for parallel execution with Rayon
+unsafe impl Send for PyIntegrand {}
+unsafe impl Sync for PyIntegrand {}
 
 #[pymethods]
 impl PyIntegrand {
@@ -56,9 +78,27 @@ impl From<VegasResult> for PyVegasResult {
     }
 }
 
+#[pymethods]
+impl PyVegasResult {
+    fn __repr__(&self) -> String {
+        format!(
+            "VegasResult(value={:.6e}, error={:.6e}, chi2_dof={:.4})",
+            self.value, self.error, self.chi2_dof
+        )
+    }
+
+    fn __str__(&self) -> String {
+        format!(
+            "Value: {:.6e} ± {:.6e}, χ²/dof: {:.4}",
+            self.value, self.error, self.chi2_dof
+        )
+    }
+}
+
 #[pyclass(name = "Vegas")]
 struct PyVegas {
     vegas: Vegas,
+    dim: usize,
 }
 
 #[pymethods]
@@ -71,20 +111,41 @@ impl PyVegas {
         n_bins: usize,
         alpha: f64,
         boundaries: Vec<(f64, f64)>,
-    ) -> Self {
-        PyVegas {
-            vegas: Vegas::new(n_iter, n_eval, n_bins, alpha, &boundaries),
+    ) -> PyResult<Self> {
+        let dim = boundaries.len();
+
+        if !(0.0..=1.0).contains(&alpha) {
+            return Err(PyValueError::new_err("alpha must be between 0.0 and 1.0"));
         }
+
+        Ok(PyVegas {
+            vegas: Vegas::new(n_iter, n_eval, n_bins, alpha, &boundaries),
+            dim,
+        })
     }
 
-    fn integrate(&mut self, integrand: &PyIntegrand) -> PyVegasResult {
-        self.vegas.integrate(integrand).into()
+    fn integrate_integrand(&mut self, py: Python, integrand: &PyIntegrand) -> PyVegasResult {
+        py.allow_threads(|| self.vegas.integrate(integrand).into())
+    }
+
+    fn integrate(&mut self, py: Python, callable: PyObject) -> PyResult<PyVegasResult> {
+        if !callable.bind(py).is_callable() {
+            return Err(PyValueError::new_err("integrand must be callable"));
+        }
+
+        let integrand = PyIntegrand {
+            callable,
+            dim: self.dim,
+        };
+
+        Ok(py.allow_threads(|| self.vegas.integrate(&integrand).into()))
     }
 }
 
 #[pyclass(name = "VegasPlus")]
 struct PyVegasPlus {
     vegas_plus: VegasPlus,
+    dim: usize,
 }
 
 #[pymethods]
@@ -99,22 +160,74 @@ impl PyVegasPlus {
         n_strat: usize,
         beta: f64,
         boundaries: Vec<(f64, f64)>,
-    ) -> Self {
-        PyVegasPlus {
-            vegas_plus: VegasPlus::new(n_iter, n_eval, n_bins, alpha, n_strat, beta, &boundaries),
+    ) -> PyResult<Self> {
+        if !(0.0..=1.0).contains(&alpha) {
+            return Err(PyValueError::new_err("alpha must be between 0.0 and 1.0"));
         }
+
+        if !(0.0..=1.0).contains(&beta) {
+            return Err(PyValueError::new_err("beta must be between 0.0 and 1.0"));
+        }
+
+        let dim = boundaries.len();
+        Ok(PyVegasPlus {
+            vegas_plus: VegasPlus::new(n_iter, n_eval, n_bins, alpha, n_strat, beta, &boundaries),
+            dim,
+        })
     }
 
-    fn integrate(&mut self, integrand: &PyIntegrand) -> PyVegasResult {
-        self.vegas_plus.integrate(integrand).into()
+    fn integrate_integrand(&mut self, py: Python, integrand: &PyIntegrand) -> PyVegasResult {
+        py.allow_threads(|| self.vegas_plus.integrate(integrand).into())
+    }
+
+    fn integrate(&mut self, py: Python, callable: PyObject) -> PyResult<PyVegasResult> {
+        if !callable.bind(py).is_callable() {
+            return Err(PyValueError::new_err("integrand must be callable"));
+        }
+
+        let integrand = PyIntegrand {
+            callable,
+            dim: self.dim,
+        };
+
+        Ok(py.allow_threads(|| self.vegas_plus.integrate(&integrand).into()))
     }
 
     #[cfg(feature = "mpi")]
-    fn integrate_mpi(&mut self, _py: Python, integrand: &PyIntegrand) -> PyVegasResult {
+    fn integrate_mpi_integrand(&mut self, py: Python, integrand: &PyIntegrand) -> PyVegasResult {
         use mpi::traits::*;
-        let universe = mpi::initialize().unwrap();
-        let world = universe.world();
-        self.vegas_plus.integrate_mpi(integrand, &world).into()
+
+        // NOTE: MPI initialization should typically happen once at program start
+        // This may cause issues if called multiple times.
+        py.allow_threads(|| {
+            let universe = mpi::initialize().unwrap();
+            let world = universe.world();
+            self.vegas_plus.integrate_mpi(integrand, &world).into()
+        })
+    }
+
+    #[cfg(feature = "mpi")]
+    fn integrate_mpi(&mut self, py: Python, callable: PyObject) -> PyResult<PyVegasResult> {
+        use mpi::traits::*;
+
+        if !callable.bind(py).is_callable() {
+            return Err(PyValueError::new_err("integrand must be callable"));
+        }
+
+        let integrand = PyIntegrand {
+            callable,
+            dim: self.dim,
+        };
+
+        Ok(py.allow_threads(|| {
+            let universe = mpi::initialize().unwrap();
+            let world = universe.world();
+            self.vegas_plus.integrate_mpi(&integrand, &world).into()
+        }))
+    }
+
+    fn __repr__(&self) -> String {
+        format!("VegasPlus(dim={})", self.dim)
     }
 }
 
