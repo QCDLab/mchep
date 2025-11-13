@@ -1,4 +1,4 @@
-//! The main vanilla VEGAS crate.
+//! The main VEGAS integrator.
 
 use crate::grid::Grid;
 use crate::integrand::Integrand;
@@ -29,6 +29,8 @@ pub struct Vegas {
     rng: Pcg64,
     /// The adaptive grids for each dimension.
     grids: Vec<Grid>,
+    /// The integration boundaries for each dimension, as (min, max) tuples.
+    boundaries: Vec<(f64, f64)>,
 }
 
 impl Vegas {
@@ -36,12 +38,20 @@ impl Vegas {
     ///
     /// # Arguments
     ///
-    /// * `dim`: The number of dimensions of the integral.
     /// * `n_iter`: The number of iterations to perform.
     /// * `n_eval`: The number of integrand evaluations per iteration.
     /// * `n_bins`: The number of bins for the adaptive grid in each dimension.
     /// * `alpha`: The grid damping factor. Should be between 0.0 and 1.0.
-    pub fn new(dim: usize, n_iter: usize, n_eval: usize, n_bins: usize, alpha: f64) -> Self {
+    /// * `boundaries`: A slice of `(min, max)` tuples defining the integration domain for each dimension.
+    pub fn new(
+        n_iter: usize,
+        n_eval: usize,
+        n_bins: usize,
+        alpha: f64,
+        boundaries: &[(f64, f64)],
+    ) -> Self {
+        let dim = boundaries.len();
+        assert!(dim > 0, "Number of dimensions must be positive.");
         let grids = (0..dim).map(|_| Grid::new(n_bins, alpha)).collect();
         Vegas {
             dim,
@@ -49,6 +59,7 @@ impl Vegas {
             n_eval,
             rng: Pcg64::from_entropy(),
             grids,
+            boundaries: boundaries.to_vec(),
         }
     }
 
@@ -104,10 +115,14 @@ impl Vegas {
                 let mut jacobian = 1.0;
                 for d in 0..self.dim {
                     let y = y_vec[d];
-                    let (bin_idx, x_val, jac_contrib) = self.grids[d].map(y);
-                    point[d] = x_val;
+                    let (bin_idx, x_unit, jac_vegas) = self.grids[d].map(y);
+                    jacobian *= jac_vegas;
                     bin_indices[d] = bin_idx;
-                    jacobian *= jac_contrib;
+
+                    let (min, max) = self.boundaries[d];
+                    let jac_boundary = max - min;
+                    point[d] = min + x_unit * jac_boundary;
+                    jacobian *= jac_boundary;
                 }
 
                 let f_val = integrand.eval(&point);
@@ -122,7 +137,7 @@ impl Vegas {
                 (weighted_f, f2, d_updates_thread)
             })
             .reduce(
-                || (0.0, 0.0, initial_d_updates.clone()), // Clone here
+                || (0.0, 0.0, initial_d_updates.clone()),
                 |mut a, b| {
                     a.0 += b.0;
                     a.1 += b.1;
@@ -193,6 +208,7 @@ mod tests {
     use super::*;
     use crate::integrand::Integrand;
 
+    // Integral of the form exp(-x^2 - y^2) in [-1, 1]^2.
     struct GaussianIntegrand;
 
     impl Integrand for GaussianIntegrand {
@@ -201,13 +217,7 @@ mod tests {
         }
 
         fn eval(&self, x: &[f64]) -> f64 {
-            let u = x[0];
-            let v = x[1];
-            let x_mapped = 2.0 * u - 1.0;
-            let y_mapped = 2.0 * v - 1.0;
-            let jacobian = 4.0;
-
-            jacobian * (-(x_mapped.powi(2)) - y_mapped.powi(2)).exp()
+            (-(x[0].powi(2)) - x[1].powi(2)).exp()
         }
     }
 
@@ -216,7 +226,8 @@ mod tests {
     #[test]
     fn test_integrate_gaussian() {
         let integrand = GaussianIntegrand;
-        let mut vegas = Vegas::new(2, 10, 10_000, 50, 0.5);
+        let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
+        let mut vegas = Vegas::new(10, 10_000, 50, 0.5, boundaries);
         let result = vegas.integrate(&integrand);
 
         assert!((result.value - ANALYTICAL_RESULT).abs() < 5.0 * result.error);

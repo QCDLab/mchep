@@ -33,6 +33,7 @@ pub struct VegasPlus {
     n_eval: usize,
     rng: Pcg64,
     grids: Vec<Grid>,
+    boundaries: Vec<(f64, f64)>,
     beta: f64,
     n_strat: usize,
     hypercubes: Vec<Hypercube>,
@@ -48,14 +49,16 @@ struct HypercubeResult {
 
 impl VegasPlus {
     pub fn new(
-        dim: usize,
         n_iter: usize,
         n_eval: usize,
         n_bins: usize,
         alpha: f64,
         n_strat: usize,
         beta: f64,
+        boundaries: &[(f64, f64)],
     ) -> Self {
+        let dim = boundaries.len();
+        assert!(dim > 0, "Number of dimensions must be positive.");
         assert!(n_strat > 0, "Number of stratifications must be positive.");
         let n_hypercubes = n_strat.pow(dim as u32);
         assert!(
@@ -72,6 +75,7 @@ impl VegasPlus {
             n_eval,
             rng: Pcg64::from_entropy(),
             grids,
+            boundaries: boundaries.to_vec(),
             beta,
             n_strat,
             hypercubes,
@@ -110,6 +114,7 @@ impl VegasPlus {
         }
 
         let n_bins = self.grids[0].n_bins();
+
         let seeds: Vec<u64> = (0..self.hypercubes.len()).map(|_| self.rng.gen()).collect();
 
         let results: Vec<HypercubeResult> = seeds
@@ -149,10 +154,14 @@ impl VegasPlus {
                     }
 
                     for d in 0..self.dim {
-                        let (bin_idx, x_val, jac_contrib) = self.grids[d].map(y_vec[d]);
-                        point[d] = x_val;
+                        let (bin_idx, x_unit, jac_vegas) = self.grids[d].map(y_vec[d]);
+                        jacobian *= jac_vegas;
                         bin_indices[d] = bin_idx;
-                        jacobian *= jac_contrib;
+
+                        let (min, max) = self.boundaries[d];
+                        let jac_boundary = max - min;
+                        point[d] = min + x_unit * jac_boundary;
+                        jacobian *= jac_boundary;
                     }
 
                     let f_val = integrand.eval(&point);
@@ -311,6 +320,7 @@ mod tests {
     use super::*;
     use crate::integrand::Integrand;
 
+    // Integral of the form exp(-x^2 - y^2) in [-1, 1]^2.
     struct GaussianIntegrand;
 
     impl Integrand for GaussianIntegrand {
@@ -319,13 +329,7 @@ mod tests {
         }
 
         fn eval(&self, x: &[f64]) -> f64 {
-            let u = x[0];
-            let v = x[1];
-            let x_mapped = 2.0 * u - 1.0;
-            let y_mapped = 2.0 * v - 1.0;
-            let jacobian = 4.0;
-
-            jacobian * (-(x_mapped.powi(2)) - y_mapped.powi(2)).exp()
+            (-(x[0].powi(2)) - x[1].powi(2)).exp()
         }
     }
 
@@ -334,7 +338,8 @@ mod tests {
     #[test]
     fn test_integrate_gaussian_plus() {
         let integrand = GaussianIntegrand;
-        let mut vegas_plus = VegasPlus::new(2, 10, 20_000, 50, 0.5, 4, 0.75);
+        let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
+        let mut vegas_plus = VegasPlus::new(10, 20_000, 50, 0.5, 4, 0.75, boundaries);
         let result = vegas_plus.integrate(&integrand);
 
         assert!((result.value - ANALYTICAL_RESULT).abs() < 5.0 * result.error);
