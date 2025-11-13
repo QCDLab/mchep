@@ -4,10 +4,10 @@
 // This annotation ensures this test is only compiled when the "mpi" feature is enabled.
 #[cfg(feature = "mpi")]
 mod mpi_tests {
+    use mchep::integrand::Integrand;
+    use mchep::vegas_plus::VegasPlus;
     use mpi::topology::SystemCommunicator;
     use mpi::traits::*;
-    use vegas_rs::integrand::Integrand;
-    use vegas_rs::vegas_plus::VegasPlus;
 
     struct GaussianIntegrand;
 
