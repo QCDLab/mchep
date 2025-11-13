@@ -227,16 +227,16 @@ mod tests {
     fn test_integrate_gaussian() {
         let integrand = GaussianIntegrand;
         let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
-        let mut vegas = Vegas::new(10, 10_000, 50, 0.5, boundaries);
+        let mut vegas = Vegas::new(10, 100_000, 50, 0.5, boundaries);
         let result = vegas.integrate(&integrand);
 
         assert!(
-            (result.value - ANALYTICAL_RESULT).abs() < 2.0 * result.error,
+            (result.value - ANALYTICAL_RESULT).abs() < 1.2 * result.error,
             "Analytical={} vs. MCHEP={}+/-{}",
             ANALYTICAL_RESULT,
             result.value,
             result.error
         );
-        assert!(result.chi2_dof < 2.0, "chi2_dof: {}", result.chi2_dof);
+        assert!(result.chi2_dof < 1.5, "chi2_dof: {}", result.chi2_dof);
     }
 }
