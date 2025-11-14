@@ -1,0 +1,13 @@
+[package]
+name = "mchep_capi"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+mchep = { path = "../mchep" }
+
+[build-dependencies]
+cbindgen = "0.26.0"
