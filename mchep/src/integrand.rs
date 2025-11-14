@@ -18,3 +18,18 @@ pub trait Integrand {
     /// The value of the function `f(x)`.
     fn eval(&self, x: &[f64]) -> f64;
 }
+
+/// A trait representing a function to be integrated on the GPU.
+///
+/// Users of the library must implement this trait for their function.
+#[cfg(feature = "gpu")]
+pub trait GpuIntegrand {
+    /// Returns the number of dimensions of the integration space.
+    fn dim(&self) -> usize;
+
+    /// Returns the path to the compiled PTX file for the integrand function.
+    ///
+    /// The PTX file should contain a `__global__` function with a signature like:
+    /// `extern "C" __global__ void integrand_ker(const double* points, double* results, int n_points, int dim)`
+    fn ptx_path(&self) -> &str;
+}

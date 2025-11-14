@@ -7,6 +7,7 @@ use rand_pcg::Pcg64;
 use rayon::prelude::*;
 
 /// Stores the result of a VEGAS integration.
+#[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct VegasResult {
     /// The estimated value of the integral.
@@ -61,6 +62,11 @@ impl Vegas {
             grids,
             boundaries: boundaries.to_vec(),
         }
+    }
+
+    /// Returns the number of dimensions of the integrator.
+    pub fn dim(&self) -> usize {
+        self.dim
     }
 
     /// Integrates the given function using the VEGAS algorithm.
@@ -200,6 +206,52 @@ impl Vegas {
             error: final_error,
             chi2_dof,
         }
+    }
+}
+
+#[cfg(feature = "gpu")]
+impl Vegas {
+    pub fn integrate_gpu<F: crate::integrand::GpuIntegrand>(
+        &mut self,
+        integrand: &F,
+    ) -> VegasResult {
+        assert_eq!(integrand.dim(), self.dim);
+
+        let gpu_integrator = match crate::gpu::GpuIntegrator::new(integrand) {
+            Ok(integrator) => integrator,
+            Err(e) => {
+                panic!("Failed to initialize GPU integrator: {}", e);
+            }
+        };
+
+        let mut iter_results = Vec::new();
+        let mut iter_errors = Vec::new();
+
+        for iter in 0..self.n_iter {
+            let (iter_val, iter_err) = match gpu_integrator.run_iteration(
+                &mut self.grids,
+                &self.boundaries,
+                self.n_eval,
+                self.dim,
+            ) {
+                Ok(res) => res,
+                Err(e) => {
+                    panic!("GPU iteration failed: {}", e);
+                }
+            };
+
+            if iter > 0 {
+                iter_results.push(iter_val);
+                iter_errors.push(iter_err);
+            }
+
+            // Refine grids on CPU
+            for grid in &mut self.grids {
+                grid.refine();
+            }
+        }
+
+        self.combine_results(&iter_results, &iter_errors)
     }
 }
 

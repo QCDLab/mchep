@@ -8,11 +8,12 @@ categories.workspace = true
 keywords.workspace = true
 
 [dependencies]
-rand.workspace = true
-rayon.workspace = true
-rand_pcg.workspace = true
+rand = { workspace = true, features = ["std", "std_rng"] }
+rand_pcg = { workspace = true }
+rayon = { workspace = true }
 mpi = { workspace = true, optional = true }
+cust = { workspace = true, optional = true }
 
 [features]
-default = []
 mpi = ["dep:mpi"]
+gpu = ["dep:cust"]

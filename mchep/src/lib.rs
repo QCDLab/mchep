@@ -10,3 +10,6 @@ pub mod vegasplus;
 
 #[cfg(feature = "mpi")]
 pub mod mpi;
+
+#[cfg(feature = "gpu")]
+pub mod gpu;
