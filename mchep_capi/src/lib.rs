@@ -1,7 +1,10 @@
-use mchep::vegas::{Vegas, VegasResult};
+//! The C-language interface for `MCHEP`
+
 use std::ffi::c_void;
 use std::os::raw::c_int;
 use std::slice;
+
+use mchep::vegas::{Vegas, VegasResult};
 
 /// A C-compatible struct for integration boundaries.
 #[repr(C)]
@@ -16,7 +19,7 @@ pub struct CBoundary {
 /// The third is a user-provided `user_data` pointer.
 pub type CIntegrand = extern "C" fn(*const f64, c_int, *mut c_void) -> f64;
 
-/// A wrapper that implements the Rust `Integrand` trait and holds the C function pointer.
+/// A wrapper that implements the Rust `Integrand` trait.
 struct CIntegrandWrapper {
     dim: usize,
     func: CIntegrand,
@@ -44,7 +47,9 @@ pub type VegasC = c_void;
 /// Creates a new VEGAS integrator.
 ///
 /// # Safety
-/// `boundaries` must be a valid pointer to an array of `CBoundary` of size `dim`.
+///
+/// `boundaries` must be a valid pointer to an array of `CBoundary`
+/// of size `dim`.
 #[no_mangle]
 pub unsafe extern "C" fn mchep_vegas_new(
     n_iter: usize,
@@ -55,7 +60,8 @@ pub unsafe extern "C" fn mchep_vegas_new(
     boundaries: *const CBoundary,
 ) -> *mut VegasC {
     let boundaries_slice = slice::from_raw_parts(boundaries, dim);
-    let rust_boundaries: Vec<(f64, f64)> = boundaries_slice.iter().map(|b| (b.min, b.max)).collect();
+    let rust_boundaries: Vec<(f64, f64)> =
+        boundaries_slice.iter().map(|b| (b.min, b.max)).collect();
 
     let vegas = Vegas::new(n_iter, n_eval, n_bins, alpha, &rust_boundaries);
     let b = Box::new(vegas);
@@ -87,7 +93,9 @@ pub unsafe extern "C" fn mchep_vegas_integrate(
 /// Frees the memory of the VEGAS integrator.
 ///
 /// # Safety
-/// `vegas_ptr` must be a valid pointer returned by `mchep_vegas_new` and must not be used afterward.
+///
+/// `vegas_ptr` must be a valid pointer returned by `mchep_vegas_new`
+/// and must not be used afterward.
 #[no_mangle]
 pub unsafe extern "C" fn mchep_vegas_free(vegas_ptr: *mut VegasC) {
     if !vegas_ptr.is_null() {
