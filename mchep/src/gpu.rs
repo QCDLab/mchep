@@ -14,17 +14,12 @@ pub struct GpuIntegrator {
 
 impl GpuIntegrator {
     pub fn new<F: GpuIntegrand>(integrand: &F) -> Result<Self, Box<dyn Error>> {
-        // Initialize CUDA
         cust::init(CudaFlags::empty())?;
 
-        // Get the first device
         let device = Device::get_device(0)?;
         let _context = Context::new(device)?;
 
-        // Create a stream
         let stream = Stream::new(StreamFlags::DEFAULT, None)?;
-
-        // Load the PTX module
         let ptx_path = integrand.ptx_path();
         let module = Module::from_file(ptx_path)?;
 
@@ -42,34 +37,27 @@ impl GpuIntegrator {
         n_eval: usize,
         dim: usize,
     ) -> Result<(f64, f64), Box<dyn Error>> {
-        // 1. Prepare data for GPU
-        // For simplicity, we generate random numbers on CPU and copy them over.
-        // A more advanced implementation would do this on the GPU.
+        // TODO: For the time-being, for the sake of simplicity, we generate random numbers
+        // on CPU and copy them over. A more advanced implementation would do this on the GPU.
         let mut rng = rand::thread_rng();
         let random_ys: Vec<f64> = (0..(n_eval * dim)).map(|_| rng.gen()).collect();
 
-        // Flatten grid data for copying
         let n_bins = grids[0].n_bins();
         let grid_bins: Vec<f64> = grids.iter().flat_map(|g| g.bins.clone()).collect();
-        let boundaries_flat: Vec<f64> = boundaries.iter().flat_map(|(min, max)| vec![*min, *max]).collect();
+        let boundaries_flat: Vec<f64> = boundaries
+            .iter()
+            .flat_map(|(min, max)| vec![*min, *max])
+            .collect();
 
-        // 2. Allocate and copy memory to the GPU
         let mut ys_gpu = random_ys.as_slice().as_dbuf()?;
         let mut grid_bins_gpu = grid_bins.as_slice().as_dbuf()?;
         let mut boundaries_gpu = boundaries_flat.as_slice().as_dbuf()?;
 
-        // Allocate output buffers
         let mut results_gpu = unsafe { DeviceBuffer::<f64>::uninitialized(n_eval)? };
         let mut d_updates_gpu = unsafe { DeviceBuffer::<f64>::uninitialized(dim * n_bins)? };
-        // Zero out d_updates_gpu
         d_updates_gpu.copy_from(&vec![0.0; dim * n_bins])?;
 
-
-        // 3. Launch the kernel
         let func = self.module.get_function("integrand_ker")?;
-
-        // Configure grid and block dimensions
-        // This is a basic configuration, can be tuned for performance
         let block_size = 256;
         let grid_size = (n_eval as u32 + block_size - 1) / block_size;
 
@@ -90,15 +78,12 @@ impl GpuIntegrator {
 
         self.stream.synchronize()?;
 
-        // 4. Copy results back to CPU
         let mut results_host = vec![0.0; n_eval];
         results_gpu.copy_to(&mut results_host)?;
 
         let mut d_updates_host = vec![0.0; dim * n_bins];
         d_updates_gpu.copy_to(&mut d_updates_host)?;
 
-        // 5. Process results on CPU
-        // This part is similar to the reduction in the Rayon implementation
         let sum_f: f64 = results_host.iter().sum();
         let sum_f2: f64 = results_host.iter().map(|f| f * f).sum();
 
@@ -107,7 +92,6 @@ impl GpuIntegrator {
         let variance = (avg_f2 - avg_f * avg_f) / (n_eval - 1).max(1) as f64;
         let error = if variance > 0.0 { variance.sqrt() } else { 0.0 };
 
-        // Update grids with the new importance data
         for d in 0..dim {
             let start = d * n_bins;
             let end = (d + 1) * n_bins;
