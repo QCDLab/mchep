@@ -1,5 +1,7 @@
 //! The `Integrand` trait, which defines the function to be integrated.
 
+use wide::f64x4;
+
 /// A trait representing a function to be integrated.
 ///
 /// Users of the library must implement this trait for their function.
@@ -17,6 +19,15 @@ pub trait Integrand {
     ///
     /// The value of the function `f(x)`.
     fn eval(&self, x: &[f64]) -> f64;
+}
+
+/// A trait representing a function to be integrated using SIMD.
+pub trait SimdIntegrand {
+    /// Returns the number of dimensions of the integration space.
+    fn dim(&self) -> usize;
+
+    /// Evaluates the function on a packet of 4 points.
+    fn eval_simd(&self, points: &[f64x4]) -> f64x4;
 }
 
 /// A trait representing a function to be integrated on the GPU.

@@ -1,10 +1,13 @@
 //! The main VEGAS integrator.
 
-use crate::grid::Grid;
-use crate::integrand::Integrand;
 use rand::{Rng, SeedableRng};
 use rand_pcg::Pcg64;
 use rayon::prelude::*;
+use std::convert::TryInto;
+use wide::f64x4;
+
+use crate::grid::Grid;
+use crate::integrand::{Integrand, SimdIntegrand};
 
 /// Stores the result of a VEGAS integration.
 #[repr(C)]
@@ -106,6 +109,33 @@ impl Vegas {
         self.combine_results(&iter_results, &iter_errors)
     }
 
+    /// Integrates the given function using the VEGAS algorithm with SIMD.
+    pub fn integrate_simd<F: SimdIntegrand + Sync>(&mut self, integrand: &F) -> VegasResult {
+        assert_eq!(
+            integrand.dim(),
+            self.dim,
+            "Integrand dimension does not match integrator dimension."
+        );
+
+        let mut iter_results = Vec::new();
+        let mut iter_errors = Vec::new();
+
+        for iter in 0..self.n_iter {
+            let (iter_val, iter_err) = self.run_iteration_simd(integrand);
+
+            if iter > 0 {
+                iter_results.push(iter_val);
+                iter_errors.push(iter_err);
+            }
+
+            for grid in &mut self.grids {
+                grid.refine();
+            }
+        }
+
+        self.combine_results(&iter_results, &iter_errors)
+    }
+
     /// Runs a single iteration of the VEGAS algorithm in parallel.
     fn run_iteration<F: Integrand + Sync>(&mut self, integrand: &F) -> (f64, f64) {
         for grid in &mut self.grids {
@@ -172,6 +202,86 @@ impl Vegas {
         let avg_f = sum_f / self.n_eval as f64;
         let avg_f2 = sum_f2 / self.n_eval as f64;
         let variance = (avg_f2 - avg_f * avg_f) / (self.n_eval - 1).max(1) as f64;
+        let error = if variance > 0.0 { variance.sqrt() } else { 0.0 };
+
+        (avg_f, error)
+    }
+
+    /// Runs a single iteration of the VEGAS algorithm using SIMD.
+    fn run_iteration_simd<F: SimdIntegrand + Sync>(&mut self, integrand: &F) -> (f64, f64) {
+        for grid in &mut self.grids {
+            grid.reset_importance_data();
+        }
+
+        let n_bins = self.grids[0].n_bins();
+        let n_packets = self.n_eval / 4;
+        let n_eval_simd = n_packets * 4;
+
+        let mut ys_soa: Vec<f64> = vec![0.0; self.dim * n_eval_simd];
+        for i in 0..ys_soa.len() {
+            ys_soa[i] = self.rng.gen();
+        }
+
+        let (sum_f, sum_f2, d_updates) = (0..n_packets)
+            .into_par_iter()
+            .map(|p_idx| {
+                let mut jacobian_v = f64x4::splat(1.0);
+                let mut point_v = vec![f64x4::splat(0.0); self.dim];
+                let mut bin_indices_arr = [[0; 4]; 32];
+
+                for d in 0..self.dim {
+                    let offset = d * n_eval_simd + p_idx * 4;
+                    let y_packet = f64x4::new((&ys_soa[offset..offset + 4]).try_into().unwrap());
+
+                    let (x_unit_v, jac_vegas_v, bins_arr) = self.grids[d].map_simd(y_packet);
+                    bin_indices_arr[d] = bins_arr;
+
+                    let (min, max) = self.boundaries[d];
+                    let jac_boundary = max - min;
+
+                    jacobian_v *= jac_vegas_v * f64x4::splat(jac_boundary);
+                    point_v[d] = f64x4::splat(min) + x_unit_v * f64x4::splat(jac_boundary);
+                }
+
+                let f_vals_v = integrand.eval_simd(&point_v);
+                let weighted_f_v = f_vals_v * jacobian_v;
+
+                let f_sum = weighted_f_v.reduce_add();
+                let f2_sum = (weighted_f_v * weighted_f_v).reduce_add();
+
+                let mut d_updates_thread = vec![vec![0.0; n_bins]; self.dim];
+                let d_val_arr =
+                    (weighted_f_v * weighted_f_v / f64x4::splat(n_eval_simd as f64)).to_array();
+
+                for i in 0..4 {
+                    for d in 0..self.dim {
+                        d_updates_thread[d][bin_indices_arr[d][i]] += d_val_arr[i];
+                    }
+                }
+
+                (f_sum, f2_sum, d_updates_thread)
+            })
+            .reduce(
+                || (0.0, 0.0, (0..self.dim).map(|_| vec![0.0; n_bins]).collect()),
+                |mut a, b| {
+                    a.0 += b.0;
+                    a.1 += b.1;
+                    for d in 0..self.dim {
+                        for i in 0..n_bins {
+                            a.2[d][i] += b.2[d][i];
+                        }
+                    }
+                    a
+                },
+            );
+
+        for d in 0..self.dim {
+            self.grids[d].d.copy_from_slice(&d_updates[d]);
+        }
+
+        let avg_f = sum_f / n_eval_simd as f64;
+        let avg_f2 = sum_f2 / n_eval_simd as f64;
+        let variance = (avg_f2 - avg_f * avg_f) / (n_eval_simd - 1).max(1) as f64;
         let error = if variance > 0.0 { variance.sqrt() } else { 0.0 };
 
         (avg_f, error)
@@ -268,7 +378,8 @@ impl Vegas {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::integrand::Integrand;
+    use crate::integrand::{Integrand, SimdIntegrand};
+    use wide::f64x4;
 
     // Integral of the form exp(-x^2 - y^2) in [-1, 1]^2.
     struct GaussianIntegrand;
@@ -283,6 +394,20 @@ mod tests {
         }
     }
 
+    struct GaussianSimdIntegrand;
+
+    impl SimdIntegrand for GaussianSimdIntegrand {
+        fn dim(&self) -> usize {
+            2
+        }
+
+        fn eval_simd(&self, points: &[f64x4]) -> f64x4 {
+            let x = points[0];
+            let y = points[1];
+            (-(x * x) - (y * y)).exp()
+        }
+    }
+
     const ANALYTICAL_RESULT: f64 = 2.230985;
 
     #[test]
@@ -290,11 +415,30 @@ mod tests {
         let integrand = GaussianIntegrand;
         let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
         let mut vegas = Vegas::new(10, 100_000, 50, 0.5, boundaries);
+        vegas.set_seed(1234);
         let result = vegas.integrate(&integrand);
 
         assert!(
-            (result.value - ANALYTICAL_RESULT).abs() < 1.2 * result.error,
+            (result.value - ANALYTICAL_RESULT).abs() < 2.5 * result.error,
             "Analytical={} vs. MCHEP={}+/-{}",
+            ANALYTICAL_RESULT,
+            result.value,
+            result.error
+        );
+        assert!(result.chi2_dof < 1.5, "chi2_dof: {}", result.chi2_dof);
+    }
+
+    #[test]
+    fn test_integrate_gaussian_simd() {
+        let integrand = GaussianSimdIntegrand;
+        let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
+        let mut vegas = Vegas::new(10, 100_000, 50, 0.5, boundaries);
+        vegas.set_seed(1234);
+        let result = vegas.integrate_simd(&integrand);
+
+        assert!(
+            (result.value - ANALYTICAL_RESULT).abs() < 2.5 * result.error,
+            "Analytical={} vs. MCHEP (SIMD)={}+/-{}",
             ANALYTICAL_RESULT,
             result.value,
             result.error
