@@ -64,6 +64,15 @@ impl Vegas {
         }
     }
 
+    /// Sets the seed for the random number generator.
+    ///
+    /// # Arguments
+    ///
+    /// * `seed`: The seed to use.
+    pub fn set_seed(&mut self, seed: u64) {
+        self.rng = Pcg64::seed_from_u64(seed);
+    }
+
     /// Returns the number of dimensions of the integrator.
     pub fn dim(&self) -> usize {
         self.dim
@@ -229,6 +238,7 @@ impl Vegas {
 
         for iter in 0..self.n_iter {
             let (iter_val, iter_err) = match gpu_integrator.run_iteration(
+                &mut self.rng,
                 &mut self.grids,
                 &self.boundaries,
                 self.n_eval,

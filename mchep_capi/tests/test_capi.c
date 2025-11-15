@@ -41,5 +41,37 @@ int main() {
 
     printf("Test passed!\n");
 
+    printf("\nTesting C API seeding...\n");
+
+    // Test 1: Same seed should produce same result
+    VegasC *vegas1 =
+        mchep_vegas_new(n_iter, n_eval, n_bins, alpha, dim, boundaries);
+    mchep_vegas_set_seed(vegas1, 1234);
+    struct VegasResult result1 = mchep_vegas_integrate(vegas1, gaussian, NULL);
+    mchep_vegas_free(vegas1);
+
+    VegasC *vegas2 =
+        mchep_vegas_new(n_iter, n_eval, n_bins, alpha, dim, boundaries);
+    mchep_vegas_set_seed(vegas2, 1234);
+    struct VegasResult result2 = mchep_vegas_integrate(vegas2, gaussian, NULL);
+    mchep_vegas_free(vegas2);
+
+    printf("Result 1: %f +/- %f\n", result1.value, result1.error);
+    printf("Result 2: %f +/- %f\n", result2.value, result2.error);
+    assert(fabs(result1.value - result2.value) < 1e-9);
+    assert(fabs(result1.error - result2.error) < 1e-9);
+    printf("Same seed test passed.\n");
+
+    // Test 2: Different seed should produce different result
+    VegasC *vegas3 =
+        mchep_vegas_new(n_iter, n_eval, n_bins, alpha, dim, boundaries);
+    mchep_vegas_set_seed(vegas3, 5678);
+    struct VegasResult result3 = mchep_vegas_integrate(vegas3, gaussian, NULL);
+    mchep_vegas_free(vegas3);
+
+    printf("Result 3: %f +/- %f\n", result3.value, result3.error);
+    assert(result1.value != result3.value);
+    printf("Different seed test passed.\n");
+
     return 0;
 }

@@ -90,6 +90,17 @@ pub unsafe extern "C" fn mchep_vegas_integrate(
     vegas.integrate(&integrand)
 }
 
+/// Sets the seed for the random number generator.
+///
+/// # Safety
+///
+/// `vegas_ptr` must be a valid pointer returned by `mchep_vegas_new`.
+#[no_mangle]
+pub unsafe extern "C" fn mchep_vegas_set_seed(vegas_ptr: *mut VegasC, seed: u64) {
+    let vegas = &mut *(vegas_ptr as *mut Vegas);
+    vegas.set_seed(seed);
+}
+
 /// Frees the memory of the VEGAS integrator.
 ///
 /// # Safety

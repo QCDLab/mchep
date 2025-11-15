@@ -4,6 +4,7 @@ use crate::grid::Grid;
 use crate::integrand::GpuIntegrand;
 use cust::prelude::*;
 use rand::Rng;
+use rand_pcg::Pcg64;
 use std::error::Error;
 
 pub struct GpuIntegrator {
@@ -32,6 +33,7 @@ impl GpuIntegrator {
 
     pub fn run_iteration(
         &self,
+        rng: &mut Pcg64,
         grids: &mut [Grid],
         boundaries: &[(f64, f64)],
         n_eval: usize,
@@ -39,7 +41,6 @@ impl GpuIntegrator {
     ) -> Result<(f64, f64), Box<dyn Error>> {
         // TODO: For the time-being, for the sake of simplicity, we generate random numbers
         // on CPU and copy them over. A more advanced implementation would do this on the GPU.
-        let mut rng = rand::thread_rng();
         let random_ys: Vec<f64> = (0..(n_eval * dim)).map(|_| rng.gen()).collect();
 
         let n_bins = grids[0].n_bins();

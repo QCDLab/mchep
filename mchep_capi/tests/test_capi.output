@@ -1,2 +1,9 @@
 Testing 2D Gaussian integral...
 Test passed!
+
+Testing C API seeding...
+Result 1: 2.230928 +/- 0.000106
+Result 2: 2.230928 +/- 0.000106
+Same seed test passed.
+Result 3: 2.230882 +/- 0.000106
+Different seed test passed.

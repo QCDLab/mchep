@@ -1,2 +1,9 @@
 Testing 2D Gaussian integral...
 Test passed!
+
+Testing C++ API seeding...
+Result 1: 2.23093 +/- 0.000105833
+Result 2: 2.23093 +/- 0.000105833
+Same seed test passed.
+Result 3: 2.23088 +/- 0.000106151
+Different seed test passed.

@@ -84,6 +84,15 @@ impl VegasPlus {
         vegas_plus
     }
 
+    /// Sets the seed for the random number generator.
+    ///
+    /// # Arguments
+    ///
+    /// * `seed`: The seed to use.
+    pub fn set_seed(&mut self, seed: u64) {
+        self.rng = Pcg64::seed_from_u64(seed);
+    }
+
     /// Integrates the given function using the VEGAS+ algorithm.
     pub fn integrate<F: Integrand + Sync>(&mut self, integrand: &F) -> VegasResult {
         assert_eq!(integrand.dim(), self.dim);
