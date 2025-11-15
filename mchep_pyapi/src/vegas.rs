@@ -113,6 +113,10 @@ impl PyVegas {
         })
     }
 
+    fn set_seed(&mut self, seed: u64) {
+        self.vegas.set_seed(seed);
+    }
+
     fn integrate_integrand(&mut self, py: Python, integrand: &PyIntegrand) -> PyVegasResult {
         py.allow_threads(|| self.vegas.integrate(integrand).into())
     }
@@ -163,6 +167,10 @@ impl PyVegasPlus {
             vegas_plus: VegasPlus::new(n_iter, n_eval, n_bins, alpha, n_strat, beta, &boundaries),
             dim,
         })
+    }
+
+    fn set_seed(&mut self, seed: u64) {
+        self.vegas_plus.set_seed(seed);
     }
 
     fn integrate_integrand(&mut self, py: Python, integrand: &PyIntegrand) -> PyVegasResult {

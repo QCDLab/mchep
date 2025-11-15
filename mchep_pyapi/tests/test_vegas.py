@@ -1,6 +1,7 @@
 """Simple test examples for VEGAS Python bindings."""
 
 import math
+import numpy as np
 
 from mchep.vegas import Vegas, VegasPlus, Integrand
 
@@ -146,3 +147,60 @@ def test_vegasplus():
 
     result = vegas_plus.integrate(f)
     assert abs(result.value - expected) <= MULTIPLIER * result.error
+
+
+def test_seeding():
+    """Test that setting a seed produces deterministic results."""
+
+    def f(x):
+        return x[0]
+
+    vegas1 = Vegas(
+        n_iter=5,
+        n_eval=10_000,
+        n_bins=30,
+        alpha=0.5,
+        boundaries=[(0.0, 1.0)],
+    )
+    vegas1.set_seed(1234)
+    result1 = vegas1.integrate(f)
+
+    vegas2 = Vegas(
+        n_iter=5,
+        n_eval=10_000,
+        n_bins=30,
+        alpha=0.5,
+        boundaries=[(0.0, 1.0)],
+    )
+    vegas2.set_seed(1234)
+    result2 = vegas2.integrate(f)
+
+    np.testing.assert_almost_equal(result1.value, result2.value)
+    np.testing.assert_almost_equal(result1.error, result2.error)
+
+    vegas_plus1 = VegasPlus(
+        n_iter=5,
+        n_eval=10_000,
+        n_bins=30,
+        alpha=0.5,
+        n_strat=2,
+        beta=0.5,
+        boundaries=[(0.0, 1.0)],
+    )
+    vegas_plus1.set_seed(1234)
+    result_plus1 = vegas_plus1.integrate(f)
+
+    vegas_plus2 = VegasPlus(
+        n_iter=5,
+        n_eval=10_000,
+        n_bins=30,
+        alpha=0.5,
+        n_strat=2,
+        beta=0.5,
+        boundaries=[(0.0, 1.0)],
+    )
+    vegas_plus2.set_seed(1234)
+    result_plus2 = vegas_plus2.integrate(f)
+
+    np.testing.assert_almost_equal(result_plus1.value, result_plus2.value)
+    np.testing.assert_almost_equal(result_plus1.error, result_plus2.error)
