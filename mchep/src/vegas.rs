@@ -143,50 +143,69 @@ impl Vegas {
         }
 
         let n_bins = self.grids[0].n_bins();
-        let initial_d_updates: Vec<Vec<f64>> = (0..self.dim).map(|_| vec![0.0; n_bins]).collect();
+        let n_eval = self.n_eval;
+        let dim = self.dim;
 
-        let random_ys: Vec<Vec<f64>> = (0..self.n_eval)
-            .map(|_| (0..self.dim).map(|_| self.rng.gen()).collect())
-            .collect();
+        let mut random_ys: Vec<f64> = vec![0.0; n_eval * dim];
+        self.rng.fill(&mut random_ys[..]);
 
-        let (sum_f, sum_f2, d_updates) = random_ys
-            .into_par_iter()
-            .map(|y_vec| {
-                let mut point = vec![0.0; self.dim];
-                let mut bin_indices = vec![0; self.dim];
-                let mut d_updates_thread =
-                    (0..self.dim).map(|_| vec![0.0; n_bins]).collect::<Vec<_>>();
+        let (sum_f, sum_f2, d_updates, _, _) = random_ys
+            .par_chunks_exact(dim)
+            .fold(
+                || {
+                    (
+                        0.0,
+                        0.0,
+                        vec![vec![0.0; n_bins]; dim],
+                        vec![0.0; dim],
+                        vec![0; dim],
+                    )
+                },
+                |mut acc, y_vec| {
+                    let (sum_f_thread, sum_f2_thread, d_updates_thread, point, bin_indices) =
+                        &mut acc;
 
-                let mut jacobian = 1.0;
-                for d in 0..self.dim {
-                    let y = y_vec[d];
-                    let (bin_idx, x_unit, jac_vegas) = self.grids[d].map(y);
-                    jacobian *= jac_vegas;
-                    bin_indices[d] = bin_idx;
+                    let mut jacobian = 1.0;
+                    for d in 0..dim {
+                        let y = y_vec[d];
+                        let (bin_idx, x_unit, jac_vegas) = self.grids[d].map(y);
+                        jacobian *= jac_vegas;
+                        bin_indices[d] = bin_idx;
 
-                    let (min, max) = self.boundaries[d];
-                    let jac_boundary = max - min;
-                    point[d] = min + x_unit * jac_boundary;
-                    jacobian *= jac_boundary;
-                }
+                        let (min, max) = self.boundaries[d];
+                        point[d] = min + (max - min) * x_unit;
+                        jacobian *= max - min;
+                    }
 
-                let f_val = integrand.eval(&point);
-                let weighted_f = f_val * jacobian;
-                let f2 = weighted_f * weighted_f;
+                    let f_val = integrand.eval(point);
+                    let weighted_f = f_val * jacobian;
+                    let f2 = weighted_f * weighted_f;
 
-                let d_val = f2 / self.n_eval as f64;
-                for d in 0..self.dim {
-                    d_updates_thread[d][bin_indices[d]] += d_val;
-                }
+                    *sum_f_thread += weighted_f;
+                    *sum_f2_thread += f2;
 
-                (weighted_f, f2, d_updates_thread)
-            })
+                    let d_val = f2 / n_eval as f64;
+                    for d in 0..dim {
+                        d_updates_thread[d][bin_indices[d]] += d_val;
+                    }
+
+                    acc
+                },
+            )
             .reduce(
-                || (0.0, 0.0, initial_d_updates.clone()),
+                || {
+                    (
+                        0.0,
+                        0.0,
+                        vec![vec![0.0; n_bins]; dim],
+                        vec![0.0; dim],
+                        vec![0; dim],
+                    )
+                },
                 |mut a, b| {
                     a.0 += b.0;
                     a.1 += b.1;
-                    for d in 0..self.dim {
+                    for d in 0..dim {
                         for i in 0..n_bins {
                             a.2[d][i] += b.2[d][i];
                         }
