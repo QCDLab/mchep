@@ -11,7 +11,9 @@ use mchep::vegas::{Vegas, VegasResult};
 /// A C-compatible struct for integration boundaries.
 #[repr(C)]
 pub struct CBoundary {
+    /// The minimum of the boundary.
     pub min: f64,
+    /// The maximum of the boundary.
     pub max: f64,
 }
 
@@ -94,7 +96,7 @@ pub unsafe extern "C" fn mchep_vegas_new(
     dim: usize,
     boundaries: *const CBoundary,
 ) -> *mut VegasC {
-    let boundaries_slice = slice::from_raw_parts(boundaries, dim);
+    let boundaries_slice = unsafe { slice::from_raw_parts(boundaries, dim) };
     let rust_boundaries: Vec<(f64, f64)> =
         boundaries_slice.iter().map(|b| (b.min, b.max)).collect();
 
@@ -114,7 +116,7 @@ pub unsafe extern "C" fn mchep_vegas_integrate(
     integrand_func: CIntegrand,
     user_data: *mut c_void,
 ) -> VegasResult {
-    let vegas = &mut *(vegas_ptr as *mut Vegas);
+    let vegas = unsafe { &mut *(vegas_ptr as *mut Vegas) };
 
     let integrand = CIntegrandWrapper {
         dim: vegas.dim(),
@@ -137,7 +139,7 @@ pub unsafe extern "C" fn mchep_vegas_integrate_simd(
     integrand_func: CSimdIntegrand,
     user_data: *mut c_void,
 ) -> VegasResult {
-    let vegas = &mut *(vegas_ptr as *mut Vegas);
+    let vegas = unsafe { &mut *(vegas_ptr as *mut Vegas) };
 
     let integrand = CSimdIntegrandWrapper {
         dim: vegas.dim(),
@@ -155,7 +157,7 @@ pub unsafe extern "C" fn mchep_vegas_integrate_simd(
 /// `vegas_ptr` must be a valid pointer returned by `mchep_vegas_new`.
 #[no_mangle]
 pub unsafe extern "C" fn mchep_vegas_set_seed(vegas_ptr: *mut VegasC, seed: u64) {
-    let vegas = &mut *(vegas_ptr as *mut Vegas);
+    let vegas = unsafe { &mut *(vegas_ptr as *mut Vegas) };
     vegas.set_seed(seed);
 }
 
@@ -168,6 +170,6 @@ pub unsafe extern "C" fn mchep_vegas_set_seed(vegas_ptr: *mut VegasC, seed: u64)
 #[no_mangle]
 pub unsafe extern "C" fn mchep_vegas_free(vegas_ptr: *mut VegasC) {
     if !vegas_ptr.is_null() {
-        drop(Box::from_raw(vegas_ptr as *mut Vegas));
+        drop(unsafe { Box::from_raw(vegas_ptr as *mut Vegas) });
     }
 }
