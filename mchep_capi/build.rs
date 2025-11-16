@@ -5,7 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 
 fn main() {
-    println!("cargo:rerun-if-changed=include/mchep.hpp");
+    println!("cargo:rerun-if-changed=src/include/mchep.hpp");
 
     if let Ok(prefix) = env::var("CARGO_C_MCHEP_INSTALL_PREFIX") {
         let prefix_path = PathBuf::from(prefix);
@@ -13,7 +13,7 @@ fn main() {
 
         fs::create_dir_all(&include_path).expect("Failed to create include directory.");
 
-        let source_header = PathBuf::from("include/mchep.hpp");
+        let source_header = PathBuf::from("src/include/mchep.hpp");
         let dest_header = include_path.join("mchep.hpp");
 
         fs::copy(&source_header, &dest_header).expect("Failed to copy header file.");
