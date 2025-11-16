@@ -666,6 +666,7 @@ version = "0.1.0"
 dependencies = [
  "cbindgen",
  "mchep",
+ "wide",
 ]
 
 [[package]]
@@ -674,6 +675,7 @@ version = "0.1.0"
 dependencies = [
  "mchep",
  "pyo3",
+ "wide",
 ]
 
 [[package]]

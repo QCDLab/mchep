@@ -1,12 +1,15 @@
 //! VEGAS interface.
 
+use std::convert::TryFrom;
+
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 
-use mchep::integrand::Integrand;
+use mchep::integrand::{Integrand, SimdIntegrand};
 use mchep::vegas::{Vegas, VegasResult};
 use mchep::vegasplus::VegasPlus;
+use wide::f64x4;
 
 // A wrapper for Python callables to implement the Integrand trait
 #[pyclass(name = "Integrand")]
@@ -43,6 +46,58 @@ impl PyIntegrand {
     #[new]
     fn new(callable: PyObject, dim: usize) -> Self {
         PyIntegrand { callable, dim }
+    }
+}
+
+// A wrapper for Python callables to implement the SimdIntegrand trait
+#[pyclass(name = "SimdIntegrand")]
+struct PySimdIntegrand {
+    callable: PyObject,
+    dim: usize,
+}
+
+impl SimdIntegrand for PySimdIntegrand {
+    fn dim(&self) -> usize {
+        self.dim
+    }
+
+    fn eval_simd(&self, points: &[f64x4]) -> f64x4 {
+        Python::with_gil(|py| {
+            let py_points = PyList::empty_bound(py);
+            for d in 0..self.dim {
+                let point_dim = PyList::new_bound(py, &points[d].to_array());
+                py_points.append(point_dim).unwrap();
+            }
+
+            let args = (py_points,);
+            self.callable
+                .call1(py, args)
+                .and_then(|result| result.extract::<Vec<f64>>(py))
+                .and_then(|result_vec| {
+                    <[f64; 4]>::try_from(result_vec)
+                        .map(f64x4::from)
+                        .map_err(|_| {
+                            PyValueError::new_err("Integrand must return a list of 4 floats.")
+                                .into()
+                        })
+                })
+                .unwrap_or_else(|err| {
+                    eprintln!("Error evaluating SIMD integrand: {err}");
+                    f64x4::splat(0.0)
+                })
+        })
+    }
+}
+
+// CRITICAL: Mark as Send + Sync for parallel execution with Rayon
+unsafe impl Send for PySimdIntegrand {}
+unsafe impl Sync for PySimdIntegrand {}
+
+#[pymethods]
+impl PySimdIntegrand {
+    #[new]
+    fn new(callable: PyObject, dim: usize) -> Self {
+        PySimdIntegrand { callable, dim }
     }
 }
 
@@ -132,6 +187,27 @@ impl PyVegas {
         };
 
         Ok(py.allow_threads(|| self.vegas.integrate(&integrand).into()))
+    }
+
+    fn integrate_simd_integrand(
+        &mut self,
+        py: Python,
+        integrand: &PySimdIntegrand,
+    ) -> PyVegasResult {
+        py.allow_threads(|| self.vegas.integrate_simd(integrand).into())
+    }
+
+    fn integrate_simd(&mut self, py: Python, callable: PyObject) -> PyResult<PyVegasResult> {
+        if !callable.bind(py).is_callable() {
+            return Err(PyValueError::new_err("integrand must be callable"));
+        }
+
+        let integrand = PySimdIntegrand {
+            callable,
+            dim: self.dim,
+        };
+
+        Ok(py.allow_threads(|| self.vegas.integrate_simd(&integrand).into()))
     }
 }
 
@@ -256,6 +332,7 @@ pub fn register(parent_module: &Bound<'_, PyModule>) -> PyResult<()> {
         "import sys; sys.modules['mchep.vegas'] = m"
     );
     m.add_class::<PyIntegrand>()?;
+    m.add_class::<PySimdIntegrand>()?;
     m.add_class::<PyVegasResult>()?;
     m.add_class::<PyVegas>()?;
     m.add_class::<PyVegasPlus>()?;

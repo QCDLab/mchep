@@ -18,3 +18,4 @@ crate-type = ["cdylib"]
 [dependencies]
 mchep = { path = "../mchep" }
 pyo3 = { workspace = true, features = ["extension-module"] }
+wide = { workspace = true }

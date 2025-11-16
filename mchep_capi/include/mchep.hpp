@@ -1,6 +1,8 @@
 #ifndef MCHEP_HPP
 #define MCHEP_HPP
 
+#include <algorithm>
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <stdexcept>
@@ -29,6 +31,19 @@ extern "C" double integrand_wrapper(const double *x, int dim, void *user_data) {
           user_data);
   std::vector<double> x_vec(x, x + dim);
   return (*func)(x_vec);
+}
+
+// SIMD wrapper
+extern "C" void integrand_simd_wrapper(const double *x, int dim,
+                                       void *user_data, double *result) {
+  if (user_data == nullptr) {
+    return;
+  }
+  auto *func = static_cast<std::function<
+      std::array<double, 4>(const std::vector<double> &)> *>(user_data);
+  std::vector<double> x_vec(x, x + dim * 4);
+  std::array<double, 4> res_arr = (*func)(x_vec);
+  std::copy(res_arr.begin(), res_arr.end(), result);
 }
 } // namespace internal
 
@@ -85,10 +100,21 @@ public:
   /// @param integrand The function to integrate. It should take a vector of
   /// doubles and return a double.
   /// @return The integration result.
-  VegasResult integrate(
-      std::function<double(const std::vector<double> &)> integrand) {
+  VegasResult
+  integrate(std::function<double(const std::vector<double> &)> integrand) {
     return mchep_vegas_integrate(vegas_ptr_, internal::integrand_wrapper,
                                  &integrand);
+  }
+
+  /// @brief Integrates the given function using SIMD.
+  /// @param integrand The function to integrate. It should take a vector of
+  /// doubles of size dim*4 (SoA) and return an array of 4 doubles.
+  /// @return The integration result.
+  VegasResult integrate_simd(
+      std::function<std::array<double, 4>(const std::vector<double> &)>
+          integrand) {
+    return mchep_vegas_integrate_simd(vegas_ptr_, internal::integrand_simd_wrapper,
+                                      &integrand);
   }
 
 private:

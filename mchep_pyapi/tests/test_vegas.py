@@ -3,7 +3,7 @@
 import math
 import numpy as np
 
-from mchep.vegas import Vegas, VegasPlus, Integrand
+from mchep.vegas import Vegas, VegasPlus, Integrand, SimdIntegrand
 
 
 MULTIPLIER = 2.5
@@ -44,6 +44,59 @@ def test_2d_gaussian():
     )
 
     result = vegas.integrate(gaussian)
+    assert abs(result.value - expected) <= MULTIPLIER * result.error
+
+
+def test_2d_gaussian_simd():
+    """Test 2D Gaussian ∫∫exp(-x²-y²) dx over [-1,1]² using SIMD"""
+    expected = 2.230985
+
+    def gaussian_simd(x_soa):
+        results = [0.0] * 4
+        for i in range(4):
+            x_i = x_soa[0][i]
+            y_i = x_soa[1][i]
+            results[i] = math.exp(-(x_i**2 + y_i**2))
+        return results
+
+    vegas = Vegas(
+        n_iter=10,
+        n_eval=50_000,
+        n_bins=50,
+        alpha=0.5,
+        boundaries=[(-1.0, 1.0), (-1.0, 1.0)],
+    )
+    vegas.set_seed(1234)
+
+    result = vegas.integrate_simd(gaussian_simd)
+    assert abs(result.value - expected) <= MULTIPLIER * result.error
+
+
+def test_simd_integrand_class():
+    """Test using SimdIntegrand wrapper for 2D Gaussian with SIMD"""
+    expected = 2.230985
+
+    class GaussianSimdClass:
+        def __call__(self, x_soa):
+            results = [0.0] * 4
+            for i in range(4):
+                x_i = x_soa[0][i]
+                y_i = x_soa[1][i]
+                results[i] = math.exp(-(x_i**2 + y_i**2))
+            return results
+
+    integrand = SimdIntegrand(GaussianSimdClass(), dim=2)
+
+    vegas = Vegas(
+        n_iter=10,
+        n_eval=50_000,
+        n_bins=50,
+        alpha=0.5,
+        boundaries=[(-1.0, 1.0), (-1.0, 1.0)],
+    )
+    vegas.set_seed(1234)
+
+    result = vegas.integrate_simd_integrand(integrand)
     assert abs(result.value - expected) <= MULTIPLIER * result.error
 
 
