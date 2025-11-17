@@ -237,9 +237,7 @@ impl Vegas {
         let n_eval_simd = n_packets * 4;
 
         let mut ys_soa: Vec<f64> = vec![0.0; self.dim * n_eval_simd];
-        for i in 0..ys_soa.len() {
-            ys_soa[i] = self.rng.gen();
-        }
+        self.rng.fill(&mut ys_soa[..]);
 
         let (sum_f, sum_f2, d_updates) = (0..n_packets)
             .into_par_iter()
@@ -268,34 +266,34 @@ impl Vegas {
                 let f_sum = weighted_f_v.reduce_add();
                 let f2_sum = (weighted_f_v * weighted_f_v).reduce_add();
 
-                let mut d_updates_thread = vec![vec![0.0; n_bins]; self.dim];
+                let mut d_updates_thread = vec![0.0; self.dim * n_bins];
                 let d_val_arr =
                     (weighted_f_v * weighted_f_v / f64x4::splat(n_eval_simd as f64)).to_array();
 
                 for i in 0..4 {
                     for d in 0..self.dim {
-                        d_updates_thread[d][bin_indices_arr[d][i]] += d_val_arr[i];
+                        d_updates_thread[d * n_bins + bin_indices_arr[d][i]] += d_val_arr[i];
                     }
                 }
 
                 (f_sum, f2_sum, d_updates_thread)
             })
             .reduce(
-                || (0.0, 0.0, (0..self.dim).map(|_| vec![0.0; n_bins]).collect()),
+                || (0.0, 0.0, vec![0.0; self.dim * n_bins]),
                 |mut a, b| {
                     a.0 += b.0;
                     a.1 += b.1;
-                    for d in 0..self.dim {
-                        for i in 0..n_bins {
-                            a.2[d][i] += b.2[d][i];
-                        }
+                    for i in 0..a.2.len() {
+                        a.2[i] += b.2[i];
                     }
                     a
                 },
             );
 
         for d in 0..self.dim {
-            self.grids[d].d.copy_from_slice(&d_updates[d]);
+            let start = d * n_bins;
+            let end = (d + 1) * n_bins;
+            self.grids[d].d.copy_from_slice(&d_updates[start..end]);
         }
 
         let avg_f = sum_f / n_eval_simd as f64;

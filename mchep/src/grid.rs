@@ -63,38 +63,30 @@ impl Grid {
         let bin_indices_v = y_scaled.floor();
         let y_frac = y_scaled - bin_indices_v;
 
-        let mut bin_indices_arr: [i64; 4] = bin_indices_v.to_array().map(|x| x as i64);
-
-        for i in 0..4 {
-            bin_indices_arr[i] = bin_indices_arr[i].min((self.n_bins - 1) as i64);
-        }
-
-        let x_low_arr = [
-            self.bins[bin_indices_arr[0] as usize],
-            self.bins[bin_indices_arr[1] as usize],
-            self.bins[bin_indices_arr[2] as usize],
-            self.bins[bin_indices_arr[3] as usize],
-        ];
-        let x_high_arr = [
-            self.bins[bin_indices_arr[0] as usize + 1],
-            self.bins[bin_indices_arr[1] as usize + 1],
-            self.bins[bin_indices_arr[2] as usize + 1],
-            self.bins[bin_indices_arr[3] as usize + 1],
+        let bin_indices_arr_f64 = bin_indices_v.to_array();
+        let final_bin_indices = [
+            (bin_indices_arr_f64[0] as usize).min(self.n_bins - 1),
+            (bin_indices_arr_f64[1] as usize).min(self.n_bins - 1),
+            (bin_indices_arr_f64[2] as usize).min(self.n_bins - 1),
+            (bin_indices_arr_f64[3] as usize).min(self.n_bins - 1),
         ];
 
-        let x_low = f64x4::from(x_low_arr);
-        let x_high = f64x4::from(x_high_arr);
+        let x_low = f64x4::new([
+            self.bins[final_bin_indices[0]],
+            self.bins[final_bin_indices[1]],
+            self.bins[final_bin_indices[2]],
+            self.bins[final_bin_indices[3]],
+        ]);
+        let x_high = f64x4::new([
+            self.bins[final_bin_indices[0] + 1],
+            self.bins[final_bin_indices[1] + 1],
+            self.bins[final_bin_indices[2] + 1],
+            self.bins[final_bin_indices[3] + 1],
+        ]);
 
         let width = x_high - x_low;
         let x = x_low + y_frac * width;
         let jacobian = width * n_bins_v;
-
-        let final_bin_indices = [
-            bin_indices_arr[0] as usize,
-            bin_indices_arr[1] as usize,
-            bin_indices_arr[2] as usize,
-            bin_indices_arr[3] as usize,
-        ];
 
         (x, jacobian, final_bin_indices)
     }
