@@ -63,7 +63,7 @@ fn vegas_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let mut vegas = Vegas::new(1, n_eval2d, 50, 0.5, boundaries2d);
             vegas.set_seed(1234);
-            vegas.integrate(black_box(&GaussianIntegrand));
+            vegas.integrate(black_box(&GaussianIntegrand), None);
         })
     });
 
@@ -71,7 +71,7 @@ fn vegas_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let mut vegas = Vegas::new(1, n_eval2d, 50, 0.5, boundaries2d);
             vegas.set_seed(1234);
-            vegas.integrate_simd(black_box(&GaussianSimdIntegrand));
+            vegas.integrate_simd(black_box(&GaussianSimdIntegrand), None);
         })
     });
     group.finish();
@@ -84,7 +84,7 @@ fn vegas_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let mut vegas = Vegas::new(1, n_eval3d, 50, 0.5, boundaries3d);
             vegas.set_seed(1234);
-            vegas.integrate(black_box(&Complex3DIntegrand));
+            vegas.integrate(black_box(&Complex3DIntegrand), None);
         })
     });
 
@@ -92,7 +92,7 @@ fn vegas_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let mut vegas = Vegas::new(1, n_eval3d, 50, 0.5, boundaries3d);
             vegas.set_seed(1234);
-            vegas.integrate_simd(black_box(&Complex3DSimdIntegrand));
+            vegas.integrate_simd(black_box(&Complex3DSimdIntegrand), None);
         })
     });
     group2.finish();
