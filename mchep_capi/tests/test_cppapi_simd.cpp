@@ -37,7 +37,7 @@ int main() {
         mchep::Vegas vegas(n_iter, n_eval, n_bins, alpha, boundaries);
         vegas.set_seed(1234); // for reproducibility
 
-        VegasResult result = vegas.integrate_simd(gaussian_cpp_simd);
+        VegasResult result = vegas.integrate_simd(gaussian_cpp_simd, -1.0);
 
         const double expected = 2.230985;
         const double multiplier = 2.5;
@@ -47,6 +47,16 @@ int main() {
 
         std::cout << "Test passed!\n";
         std::cout << "Result: " << std::fixed << std::setprecision(6) << result.value << " +/- " << result.error << std::endl;
+
+        std::cout << "\nTesting C++ API SIMD accuracy goal...\n";
+        mchep::Vegas vegas2(20, 100000, n_bins, alpha, boundaries);
+        vegas2.set_seed(1234);
+        VegasResult result2 = vegas2.integrate_simd(gaussian_cpp_simd, 0.1);
+
+        double accuracy = (result2.error / std::abs(result2.value)) * 100.0;
+        std::cout << "Accuracy goal test: value=" << result2.value << ", error=" << result2.error << ", acc=" << accuracy << std::endl;
+        assert(accuracy < 0.1);
+        std::cout << "Accuracy goal test passed.\n";
 
     } catch (const std::runtime_error& e) {
         std::cerr << "Error: " << e.what() << std::endl;

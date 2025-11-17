@@ -101,20 +101,24 @@ public:
   /// doubles and return a double.
   /// @return The integration result.
   VegasResult
-  integrate(std::function<double(const std::vector<double> &)> integrand) {
+  integrate(std::function<double(const std::vector<double> &)> integrand,
+            double target_accuracy = -1.0) {
     return mchep_vegas_integrate(vegas_ptr_, internal::integrand_wrapper,
-                                 &integrand);
+                                 &integrand, target_accuracy);
   }
 
   /// @brief Integrates the given function using SIMD.
   /// @param integrand The function to integrate. It should take a vector of
   /// doubles of size dim*4 (SoA) and return an array of 4 doubles.
+  /// @param target_accuracy The desired accuracy in percent. If non-positive, it is ignored.
   /// @return The integration result.
   VegasResult integrate_simd(
       std::function<std::array<double, 4>(const std::vector<double> &)>
-          integrand) {
-    return mchep_vegas_integrate_simd(vegas_ptr_, internal::integrand_simd_wrapper,
-                                      &integrand);
+          integrand,
+      double target_accuracy = -1.0) {
+    return mchep_vegas_integrate_simd(vegas_ptr_,
+                                      internal::integrand_simd_wrapper,
+                                      &integrand, target_accuracy);
   }
 
 private:

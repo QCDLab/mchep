@@ -31,7 +31,7 @@ int main() {
     try {
         mchep::Vegas vegas(n_iter, n_eval, n_bins, alpha, boundaries);
         vegas.set_seed(1234);
-        VegasResult result = vegas.integrate(integrand_4d);
+        VegasResult result = vegas.integrate(integrand_4d, -1.0);
 
         std::cout << "MCHEP Result: " << result.value << " +/- " << result.error << std::endl;
 

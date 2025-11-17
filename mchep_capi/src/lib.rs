@@ -115,6 +115,7 @@ pub unsafe extern "C" fn mchep_vegas_integrate(
     vegas_ptr: *mut VegasC,
     integrand_func: CIntegrand,
     user_data: *mut c_void,
+    target_accuracy: f64,
 ) -> VegasResult {
     let vegas = unsafe { &mut *(vegas_ptr as *mut Vegas) };
 
@@ -124,7 +125,13 @@ pub unsafe extern "C" fn mchep_vegas_integrate(
         user_data,
     };
 
-    vegas.integrate(&integrand)
+    let accuracy_opt = if target_accuracy > 0.0 {
+        Some(target_accuracy)
+    } else {
+        None
+    };
+
+    vegas.integrate(&integrand, accuracy_opt)
 }
 
 /// Integrates the given function using the VEGAS algorithm with SIMD.
@@ -138,6 +145,7 @@ pub unsafe extern "C" fn mchep_vegas_integrate_simd(
     vegas_ptr: *mut VegasC,
     integrand_func: CSimdIntegrand,
     user_data: *mut c_void,
+    target_accuracy: f64,
 ) -> VegasResult {
     let vegas = unsafe { &mut *(vegas_ptr as *mut Vegas) };
 
@@ -147,7 +155,13 @@ pub unsafe extern "C" fn mchep_vegas_integrate_simd(
         user_data,
     };
 
-    vegas.integrate_simd(&integrand)
+    let accuracy_opt = if target_accuracy > 0.0 {
+        Some(target_accuracy)
+    } else {
+        None
+    };
+
+    vegas.integrate_simd(&integrand, accuracy_opt)
 }
 
 /// Sets the seed for the random number generator.

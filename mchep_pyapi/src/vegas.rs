@@ -172,11 +172,23 @@ impl PyVegas {
         self.vegas.set_seed(seed);
     }
 
-    fn integrate_integrand(&mut self, py: Python, integrand: &PyIntegrand) -> PyVegasResult {
-        py.allow_threads(|| self.vegas.integrate(integrand).into())
+    #[pyo3(signature = (integrand, target_accuracy = None))]
+    fn integrate_integrand(
+        &mut self,
+        py: Python,
+        integrand: &PyIntegrand,
+        target_accuracy: Option<f64>,
+    ) -> PyVegasResult {
+        py.allow_threads(|| self.vegas.integrate(integrand, target_accuracy).into())
     }
 
-    fn integrate(&mut self, py: Python, callable: PyObject) -> PyResult<PyVegasResult> {
+    #[pyo3(signature = (callable, target_accuracy = None))]
+    fn integrate(
+        &mut self,
+        py: Python,
+        callable: PyObject,
+        target_accuracy: Option<f64>,
+    ) -> PyResult<PyVegasResult> {
         if !callable.bind(py).is_callable() {
             return Err(PyValueError::new_err("integrand must be callable"));
         }
@@ -186,18 +198,26 @@ impl PyVegas {
             dim: self.dim,
         };
 
-        Ok(py.allow_threads(|| self.vegas.integrate(&integrand).into()))
+        Ok(py.allow_threads(|| self.vegas.integrate(&integrand, target_accuracy).into()))
     }
 
+    #[pyo3(signature = (integrand, target_accuracy = None))]
     fn integrate_simd_integrand(
         &mut self,
         py: Python,
         integrand: &PySimdIntegrand,
+        target_accuracy: Option<f64>,
     ) -> PyVegasResult {
-        py.allow_threads(|| self.vegas.integrate_simd(integrand).into())
+        py.allow_threads(|| self.vegas.integrate_simd(integrand, target_accuracy).into())
     }
 
-    fn integrate_simd(&mut self, py: Python, callable: PyObject) -> PyResult<PyVegasResult> {
+    #[pyo3(signature = (callable, target_accuracy = None))]
+    fn integrate_simd(
+        &mut self,
+        py: Python,
+        callable: PyObject,
+        target_accuracy: Option<f64>,
+    ) -> PyResult<PyVegasResult> {
         if !callable.bind(py).is_callable() {
             return Err(PyValueError::new_err("integrand must be callable"));
         }
@@ -207,7 +227,11 @@ impl PyVegas {
             dim: self.dim,
         };
 
-        Ok(py.allow_threads(|| self.vegas.integrate_simd(&integrand).into()))
+        Ok(py.allow_threads(|| {
+            self.vegas
+                .integrate_simd(&integrand, target_accuracy)
+                .into()
+        }))
     }
 }
 
@@ -249,11 +273,27 @@ impl PyVegasPlus {
         self.vegas_plus.set_seed(seed);
     }
 
-    fn integrate_integrand(&mut self, py: Python, integrand: &PyIntegrand) -> PyVegasResult {
-        py.allow_threads(|| self.vegas_plus.integrate(integrand).into())
+    #[pyo3(signature = (integrand, target_accuracy = None))]
+    fn integrate_integrand(
+        &mut self,
+        py: Python,
+        integrand: &PyIntegrand,
+        target_accuracy: Option<f64>,
+    ) -> PyVegasResult {
+        py.allow_threads(|| {
+            self.vegas_plus
+                .integrate(integrand, target_accuracy)
+                .into()
+        })
     }
 
-    fn integrate(&mut self, py: Python, callable: PyObject) -> PyResult<PyVegasResult> {
+    #[pyo3(signature = (callable, target_accuracy = None))]
+    fn integrate(
+        &mut self,
+        py: Python,
+        callable: PyObject,
+        target_accuracy: Option<f64>,
+    ) -> PyResult<PyVegasResult> {
         if !callable.bind(py).is_callable() {
             return Err(PyValueError::new_err("integrand must be callable"));
         }
@@ -263,11 +303,21 @@ impl PyVegasPlus {
             dim: self.dim,
         };
 
-        Ok(py.allow_threads(|| self.vegas_plus.integrate(&integrand).into()))
+        Ok(py.allow_threads(|| {
+            self.vegas_plus
+                .integrate(&integrand, target_accuracy)
+                .into()
+        }))
     }
 
     #[cfg(feature = "mpi")]
-    fn integrate_mpi_integrand(&mut self, py: Python, integrand: &PyIntegrand) -> PyVegasResult {
+    #[pyo3(signature = (integrand, target_accuracy = None))]
+    fn integrate_mpi_integrand(
+        &mut self,
+        py: Python,
+        integrand: &PyIntegrand,
+        target_accuracy: Option<f64>,
+    ) -> PyVegasResult {
         use mpi::traits::*;
 
         // NOTE: MPI initialization should typically happen once at program start
@@ -275,12 +325,20 @@ impl PyVegasPlus {
         py.allow_threads(|| {
             let universe = mpi::initialize().unwrap();
             let world = universe.world();
-            self.vegas_plus.integrate_mpi(integrand, &world).into()
+            self.vegas_plus
+                .integrate_mpi(integrand, &world, target_accuracy)
+                .into()
         })
     }
 
     #[cfg(feature = "mpi")]
-    fn integrate_mpi(&mut self, py: Python, callable: PyObject) -> PyResult<PyVegasResult> {
+    #[pyo3(signature = (callable, target_accuracy = None))]
+    fn integrate_mpi(
+        &mut self,
+        py: Python,
+        callable: PyObject,
+        target_accuracy: Option<f64>,
+    ) -> PyResult<PyVegasResult> {
         use mpi::traits::*;
 
         if !callable.bind(py).is_callable() {
@@ -295,7 +353,9 @@ impl PyVegasPlus {
         Ok(py.allow_threads(|| {
             let universe = mpi::initialize().unwrap();
             let world = universe.world();
-            self.vegas_plus.integrate_mpi(&integrand, &world).into()
+            self.vegas_plus
+                .integrate_mpi(&integrand, &world, target_accuracy)
+                .into()
         }))
     }
 

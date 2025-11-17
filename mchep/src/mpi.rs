@@ -21,6 +21,7 @@ impl VegasPlus {
         &mut self,
         integrand: &F,
         world: &SystemCommunicator,
+        target_accuracy: Option<f64>,
     ) -> VegasResult {
         assert_eq!(integrand.dim(), self.dim);
 
@@ -48,13 +49,15 @@ impl VegasPlus {
 
             self.deserialize_and_update_state(&global_data);
 
+            let mut stop_signal = 0i32;
+
             if rank == 0 {
                 let mut global_iter_val = 0.0;
-                world.reduce_into_root(&iter_val, &mut global_iter_val, SystemOperation::sum());
+                world.process_at_rank(0).reduce_into_root(&iter_val, &mut global_iter_val, SystemOperation::sum());
 
                 let mut global_iter_err_sq = 0.0;
                 let iter_err_sq = iter_err.powi(2);
-                world.reduce_into_root(
+                world.process_at_rank(0).reduce_into_root(
                     &iter_err_sq,
                     &mut global_iter_err_sq,
                     SystemOperation::sum(),
@@ -64,10 +67,29 @@ impl VegasPlus {
                     iter_results.push(global_iter_val);
                     iter_errors.push(global_iter_err_sq.sqrt());
                 }
+
+                if let Some(acc_req) = target_accuracy {
+                    if !iter_results.is_empty() {
+                        let current_result = self.combine_results(&iter_results, &iter_errors);
+                        if current_result.value != 0.0 {
+                            let current_acc =
+                                (current_result.error / current_result.value.abs()) * 100.0;
+                            if current_acc < acc_req {
+                                stop_signal = 1;
+                            }
+                        }
+                    }
+                }
             } else {
-                world.reduce_into(&iter_val, SystemOperation::sum(), 0);
+                world.process_at_rank(0).reduce_into(&iter_val, SystemOperation::sum());
                 let iter_err_sq = iter_err.powi(2);
-                world.reduce_into(&iter_err_sq, SystemOperation::sum(), 0);
+                world.process_at_rank(0).reduce_into(&iter_err_sq, SystemOperation::sum());
+            }
+
+            world.process_at_rank(0).broadcast_into(&mut stop_signal);
+
+            if stop_signal == 1 {
+                break;
             }
 
             self.reallocate_samples();

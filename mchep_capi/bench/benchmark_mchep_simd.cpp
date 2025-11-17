@@ -40,7 +40,7 @@ int main() {
     try {
         mchep::Vegas vegas(n_iter, n_eval, n_bins, alpha, boundaries);
         vegas.set_seed(1234);
-        VegasResult result = vegas.integrate_simd(integrand_4d_simd);
+        VegasResult result = vegas.integrate_simd(integrand_4d_simd, -1.0);
 
         std::cout << "MCHEP SIMD Result: " << result.value << " +/- " << result.error << std::endl;
 

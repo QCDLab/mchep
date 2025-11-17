@@ -257,3 +257,42 @@ def test_seeding():
 
     np.testing.assert_almost_equal(result_plus1.value, result_plus2.value)
     np.testing.assert_almost_equal(result_plus1.error, result_plus2.error)
+
+
+def test_accuracy_goal():
+    """Test that the integration stops when the accuracy goal is reached."""
+    expected = 2.230985
+
+    def gaussian(x):
+        return math.exp(-(x[0] ** 2 + x[1] ** 2))
+
+    vegas = Vegas(
+        n_iter=20,  # More iterations to ensure accuracy is met
+        n_eval=100_000,
+        n_bins=50,
+        alpha=0.5,
+        boundaries=[(-1.0, 1.0), (-1.0, 1.0)],
+    )
+    vegas.set_seed(1234)
+
+    # Set a reasonable accuracy goal
+    target_accuracy = 0.1  # 0.1%
+    result = vegas.integrate(gaussian, target_accuracy=target_accuracy)
+
+    # Check that the result is within the target accuracy
+    assert (result.error / abs(result.value)) * 100.0 < target_accuracy
+    assert abs(result.value - expected) <= MULTIPLIER * result.error
+
+    vegas_plus = VegasPlus(
+        n_iter=20,
+        n_eval=100_000,
+        n_bins=50,
+        alpha=0.5,
+        n_strat=4,
+        beta=0.75,
+        boundaries=[(-1.0, 1.0), (-1.0, 1.0)],
+    )
+    vegas_plus.set_seed(1234)
+    result_plus = vegas_plus.integrate(gaussian, target_accuracy=target_accuracy)
+    assert (result_plus.error / abs(result_plus.value)) * 100.0 < target_accuracy
+    assert abs(result_plus.value - expected) <= MULTIPLIER * result_plus.error

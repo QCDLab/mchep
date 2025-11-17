@@ -82,7 +82,11 @@ impl Vegas {
     }
 
     /// Integrates the given function using the VEGAS algorithm.
-    pub fn integrate<F: Integrand + Sync>(&mut self, integrand: &F) -> VegasResult {
+    pub fn integrate<F: Integrand + Sync>(
+        &mut self,
+        integrand: &F,
+        target_accuracy: Option<f64>,
+    ) -> VegasResult {
         assert_eq!(
             integrand.dim(),
             self.dim,
@@ -98,6 +102,19 @@ impl Vegas {
             if iter > 0 {
                 iter_results.push(iter_val);
                 iter_errors.push(iter_err);
+
+                if let Some(acc_req) = target_accuracy {
+                    if !iter_results.is_empty() {
+                        let current_result = self.combine_results(&iter_results, &iter_errors);
+                        if current_result.value != 0.0 {
+                            let current_acc =
+                                (current_result.error / current_result.value.abs()) * 100.0;
+                            if current_acc < acc_req {
+                                return current_result;
+                            }
+                        }
+                    }
+                }
             }
 
             for grid in &mut self.grids {
@@ -110,7 +127,11 @@ impl Vegas {
     }
 
     /// Integrates the given function using the VEGAS algorithm with SIMD.
-    pub fn integrate_simd<F: SimdIntegrand + Sync>(&mut self, integrand: &F) -> VegasResult {
+    pub fn integrate_simd<F: SimdIntegrand + Sync>(
+        &mut self,
+        integrand: &F,
+        target_accuracy: Option<f64>,
+    ) -> VegasResult {
         assert_eq!(
             integrand.dim(),
             self.dim,
@@ -126,6 +147,19 @@ impl Vegas {
             if iter > 0 {
                 iter_results.push(iter_val);
                 iter_errors.push(iter_err);
+
+                if let Some(acc_req) = target_accuracy {
+                    if !iter_results.is_empty() {
+                        let current_result = self.combine_results(&iter_results, &iter_errors);
+                        if current_result.value != 0.0 {
+                            let current_acc =
+                                (current_result.error / current_result.value.abs()) * 100.0;
+                            if current_acc < acc_req {
+                                return current_result;
+                            }
+                        }
+                    }
+                }
             }
 
             for grid in &mut self.grids {
@@ -350,6 +384,7 @@ impl Vegas {
     pub fn integrate_gpu<F: crate::integrand::GpuIntegrand>(
         &mut self,
         integrand: &F,
+        target_accuracy: Option<f64>,
     ) -> VegasResult {
         assert_eq!(integrand.dim(), self.dim);
 
@@ -380,6 +415,19 @@ impl Vegas {
             if iter > 0 {
                 iter_results.push(iter_val);
                 iter_errors.push(iter_err);
+
+                if let Some(acc_req) = target_accuracy {
+                    if !iter_results.is_empty() {
+                        let current_result = self.combine_results(&iter_results, &iter_errors);
+                        if current_result.value != 0.0 {
+                            let current_acc =
+                                (current_result.error / current_result.value.abs()) * 100.0;
+                            if current_acc < acc_req {
+                                return current_result;
+                            }
+                        }
+                    }
+                }
             }
 
             // Refine grids on CPU
@@ -433,7 +481,7 @@ mod tests {
         let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
         let mut vegas = Vegas::new(10, 100_000, 50, 0.5, boundaries);
         vegas.set_seed(1234);
-        let result = vegas.integrate(&integrand);
+        let result = vegas.integrate(&integrand, None);
 
         assert!(
             (result.value - ANALYTICAL_RESULT).abs() < 2.5 * result.error,
@@ -451,7 +499,7 @@ mod tests {
         let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
         let mut vegas = Vegas::new(10, 100_000, 50, 0.5, boundaries);
         vegas.set_seed(1234);
-        let result = vegas.integrate_simd(&integrand);
+        let result = vegas.integrate_simd(&integrand, None);
 
         assert!(
             (result.value - ANALYTICAL_RESULT).abs() < 2.5 * result.error,
@@ -461,5 +509,24 @@ mod tests {
             result.error
         );
         assert!(result.chi2_dof < 1.5, "chi2_dof: {}", result.chi2_dof);
+    }
+
+    #[test]
+    fn test_accuracy_goal() {
+        let integrand = GaussianIntegrand;
+        let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
+        let mut vegas = Vegas::new(10, 100_000, 50, 0.5, boundaries);
+        vegas.set_seed(1234);
+        let result = vegas.integrate(&integrand, Some(0.5));
+
+        let accuracy = (result.error / result.value.abs()) * 100.0;
+        assert!(accuracy < 0.5);
+        assert!(
+            (result.value - ANALYTICAL_RESULT).abs() < 3. * result.error,
+            "Analytical={} vs. MCHEP={}+/-{}",
+            ANALYTICAL_RESULT,
+            result.value,
+            result.error
+        );
     }
 }
