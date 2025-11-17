@@ -74,15 +74,14 @@ int main() {
     printf("Different seed test passed.\n");
 
     printf("\nTesting C API accuracy goal...\n");
-    VegasC *vegas4 =
-        mchep_vegas_new(20, 100000, n_bins, alpha, dim, boundaries);
+    VegasC *vegas4 = mchep_vegas_new(20, 1e8, n_bins, alpha, dim, boundaries);
     mchep_vegas_set_seed(vegas4, 1234);
-    struct VegasResult result4 = mchep_vegas_integrate(vegas4, gaussian, NULL, 0.1);
+    struct VegasResult result4 = mchep_vegas_integrate(vegas4, gaussian, NULL, 1e-4);
     mchep_vegas_free(vegas4);
 
     double accuracy = (result4.error / fabs(result4.value)) * 100.0;
     printf("Accuracy goal test: value=%f, error=%f, acc=%f\n", result4.value, result4.error, accuracy);
-    assert(accuracy < 0.1);
+    assert(accuracy < 1e-4);
     printf("Accuracy goal test passed.\n");
 
     return 0;

@@ -7,3 +7,7 @@ Result 2: 2.230928 +/- 0.000106
 Same seed test passed.
 Result 3: 2.230882 +/- 0.000106
 Different seed test passed.
+
+Testing C API accuracy goal...
+Accuracy goal test: value=2.230987, error=0.000002, acc=0.000098
+Accuracy goal test passed.

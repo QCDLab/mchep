@@ -4,7 +4,6 @@
 #include <cmath>
 #include <cassert>
 #include <utility>
-#include <iomanip>
 
 // Integrand function for a 2D Gaussian: exp(-x^2 - y^2)
 double gaussian_cpp(const std::vector<double>& x) {
@@ -64,13 +63,13 @@ int main() {
         std::cout << "Different seed test passed.\n";
 
         std::cout << "\nTesting C++ API accuracy goal...\n";
-        mchep::Vegas vegas4(20, 100000, n_bins, alpha, boundaries);
+        mchep::Vegas vegas4(20, 1e8, n_bins, alpha, boundaries);
         vegas4.set_seed(1234);
-        VegasResult result4 = vegas4.integrate(gaussian_cpp, 0.1);
+        VegasResult result4 = vegas4.integrate(gaussian_cpp, 1e-4);
 
         double accuracy = (result4.error / std::abs(result4.value)) * 100.0;
         std::cout << "Accuracy goal test: value=" << result4.value << ", error=" << result4.error << ", acc=" << accuracy << std::endl;
-        assert(accuracy < 0.1);
+        assert(accuracy < 1e-4);
         std::cout << "Accuracy goal test passed.\n";
 
     } catch (const std::runtime_error& e) {
