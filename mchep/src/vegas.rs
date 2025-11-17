@@ -33,7 +33,7 @@ pub struct Vegas {
     rng: Pcg64,
     /// The adaptive grids for each dimension.
     grids: Vec<Grid>,
-    /// The integration boundaries for each dimension, as (min, max) tuples.
+    /// The integration boundaries for each dimension.
     boundaries: Vec<(f64, f64)>,
 }
 
@@ -46,7 +46,7 @@ impl Vegas {
     /// * `n_eval`: The number of integrand evaluations per iteration.
     /// * `n_bins`: The number of bins for the adaptive grid in each dimension.
     /// * `alpha`: The grid damping factor. Should be between 0.0 and 1.0.
-    /// * `boundaries`: A slice of `(min, max)` tuples defining the integration domain for each dimension.
+    /// * `boundaries`: The integration domain for each dimension.
     pub fn new(
         n_iter: usize,
         n_eval: usize,

@@ -58,8 +58,6 @@ impl VegasPlus {
         boundaries: &[(f64, f64)],
     ) -> Self {
         let dim = boundaries.len();
-        assert!(dim > 0, "Number of dimensions must be positive.");
-        assert!(n_strat > 0, "Number of stratifications must be positive.");
         let n_hypercubes = n_strat.pow(dim as u32);
         assert!(
             n_eval >= 2 * n_hypercubes,
