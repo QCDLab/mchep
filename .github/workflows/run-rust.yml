@@ -17,9 +17,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Get data
-        uses: ./.github/actions/cache-data
-
       - name: Switch to nightly Rust
         run: |
           rustup default nightly
