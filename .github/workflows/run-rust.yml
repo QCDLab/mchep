@@ -48,7 +48,6 @@ jobs:
                   --ignore-filename-regex=mchep_capi \
                   --instr-profile=mchep.profdata \
                   --skip-functions \
-                  --object target/debug/mchep \
                   --format lcov > lcov.info
           grep SF lcov.info | sort -u | sed 's/SF://'
 
