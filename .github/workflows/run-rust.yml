@@ -39,7 +39,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           find . -name '*.profraw' -exec $(rustc --print target-libdir)/../bin/llvm-profdata merge -sparse -o mchep.profdata {} +
-          ( sed -nE 's/[[:space:]]+Running( unittests|) [^[:space:]]+ \(([^)]+)\)/\2/p' stderr && echo target/debug/doctestbins/*/rust_out | tr ' ' "\n" ) | \
+          sed -nE 's/[[:space:]]+Running( unittests|) [^[:space:]]+ \(([^)]+)\)/\2/p' stderr | \
               xargs printf ' --object %s' | \
               xargs $(rustc --print target-libdir)/../bin/llvm-cov export \
                   --ignore-filename-regex=index.crates.io \
