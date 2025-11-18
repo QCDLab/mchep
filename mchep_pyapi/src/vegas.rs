@@ -310,6 +310,43 @@ impl PyVegasPlus {
         }))
     }
 
+    #[pyo3(signature = (integrand, target_accuracy = None))]
+    fn integrate_simd_integrand(
+        &mut self,
+        py: Python,
+        integrand: &PySimdIntegrand,
+        target_accuracy: Option<f64>,
+    ) -> PyVegasResult {
+        py.allow_threads(|| {
+            self.vegas_plus
+                .integrate_simd(integrand, target_accuracy)
+                .into()
+        })
+    }
+
+    #[pyo3(signature = (callable, target_accuracy = None))]
+    fn integrate_simd(
+        &mut self,
+        py: Python,
+        callable: PyObject,
+        target_accuracy: Option<f64>,
+    ) -> PyResult<PyVegasResult> {
+        if !callable.bind(py).is_callable() {
+            return Err(PyValueError::new_err("integrand must be callable"));
+        }
+
+        let integrand = PySimdIntegrand {
+            callable,
+            dim: self.dim,
+        };
+
+        Ok(py.allow_threads(|| {
+            self.vegas_plus
+                .integrate_simd(&integrand, target_accuracy)
+                .into()
+        }))
+    }
+
     #[cfg(feature = "mpi")]
     #[pyo3(signature = (integrand, target_accuracy = None))]
     fn integrate_mpi_integrand(

@@ -332,3 +332,30 @@ def test_non_rectangular_volume():
 
     result = vegas.integrate(f_sph)
     assert abs(result.value - expected) <= MULTIPLIER * result.error
+
+
+def test_vegasplus_simd():
+    """Test VegasPlus integrator for 2D Gaussian with SIMD"""
+    expected = 2.230985
+
+    def gaussian_simd(x_soa):
+        results = [0.0] * 4
+        for i in range(4):
+            x_i = x_soa[0][i]
+            y_i = x_soa[1][i]
+            results[i] = math.exp(-(x_i**2 + y_i**2))
+        return results
+
+    vegas_plus = VegasPlus(
+        n_iter=10,
+        n_eval=50_000,
+        n_bins=50,
+        alpha=0.5,
+        n_strat=4,
+        beta=0.75,
+        boundaries=[(-1.0, 1.0), (-1.0, 1.0)],
+    )
+    vegas_plus.set_seed(1234)
+
+    result = vegas_plus.integrate_simd(gaussian_simd)
+    assert abs(result.value - expected) <= MULTIPLIER * result.error
