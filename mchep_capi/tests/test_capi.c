@@ -31,7 +31,7 @@ int main() {
         return 1;
     }
 
-    struct VegasResult result = mchep_vegas_integrate(vegas, gaussian, NULL);
+    struct VegasResult result = mchep_vegas_integrate(vegas, gaussian, NULL, -1.0);
     mchep_vegas_free(vegas);
 
     const double expected = 2.230985;
@@ -47,13 +47,13 @@ int main() {
     VegasC *vegas1 =
         mchep_vegas_new(n_iter, n_eval, n_bins, alpha, dim, boundaries);
     mchep_vegas_set_seed(vegas1, 1234);
-    struct VegasResult result1 = mchep_vegas_integrate(vegas1, gaussian, NULL);
+    struct VegasResult result1 = mchep_vegas_integrate(vegas1, gaussian, NULL, -1.0);
     mchep_vegas_free(vegas1);
 
     VegasC *vegas2 =
         mchep_vegas_new(n_iter, n_eval, n_bins, alpha, dim, boundaries);
     mchep_vegas_set_seed(vegas2, 1234);
-    struct VegasResult result2 = mchep_vegas_integrate(vegas2, gaussian, NULL);
+    struct VegasResult result2 = mchep_vegas_integrate(vegas2, gaussian, NULL, -1.0);
     mchep_vegas_free(vegas2);
 
     printf("Result 1: %f +/- %f\n", result1.value, result1.error);
@@ -66,12 +66,23 @@ int main() {
     VegasC *vegas3 =
         mchep_vegas_new(n_iter, n_eval, n_bins, alpha, dim, boundaries);
     mchep_vegas_set_seed(vegas3, 5678);
-    struct VegasResult result3 = mchep_vegas_integrate(vegas3, gaussian, NULL);
+    struct VegasResult result3 = mchep_vegas_integrate(vegas3, gaussian, NULL, -1.0);
     mchep_vegas_free(vegas3);
 
     printf("Result 3: %f +/- %f\n", result3.value, result3.error);
     assert(result1.value != result3.value);
     printf("Different seed test passed.\n");
+
+    printf("\nTesting C API accuracy goal...\n");
+    VegasC *vegas4 = mchep_vegas_new(20, 1e8, n_bins, alpha, dim, boundaries);
+    mchep_vegas_set_seed(vegas4, 1234);
+    struct VegasResult result4 = mchep_vegas_integrate(vegas4, gaussian, NULL, 1e-4);
+    mchep_vegas_free(vegas4);
+
+    double accuracy = (result4.error / fabs(result4.value)) * 100.0;
+    printf("Accuracy goal test: value=%f, error=%f, acc=%f\n", result4.value, result4.error, accuracy);
+    assert(accuracy < 1e-4);
+    printf("Accuracy goal test passed.\n");
 
     return 0;
 }

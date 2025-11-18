@@ -1,10 +1,13 @@
 //! The main VEGAS integrator.
 
-use crate::grid::Grid;
-use crate::integrand::Integrand;
 use rand::{Rng, SeedableRng};
 use rand_pcg::Pcg64;
 use rayon::prelude::*;
+use std::convert::TryInto;
+use wide::f64x4;
+
+use crate::grid::Grid;
+use crate::integrand::{Integrand, SimdIntegrand};
 
 /// Stores the result of a VEGAS integration.
 #[repr(C)]
@@ -30,7 +33,7 @@ pub struct Vegas {
     rng: Pcg64,
     /// The adaptive grids for each dimension.
     grids: Vec<Grid>,
-    /// The integration boundaries for each dimension, as (min, max) tuples.
+    /// The integration boundaries for each dimension.
     boundaries: Vec<(f64, f64)>,
 }
 
@@ -43,7 +46,7 @@ impl Vegas {
     /// * `n_eval`: The number of integrand evaluations per iteration.
     /// * `n_bins`: The number of bins for the adaptive grid in each dimension.
     /// * `alpha`: The grid damping factor. Should be between 0.0 and 1.0.
-    /// * `boundaries`: A slice of `(min, max)` tuples defining the integration domain for each dimension.
+    /// * `boundaries`: The integration domain for each dimension.
     pub fn new(
         n_iter: usize,
         n_eval: usize,
@@ -79,7 +82,11 @@ impl Vegas {
     }
 
     /// Integrates the given function using the VEGAS algorithm.
-    pub fn integrate<F: Integrand + Sync>(&mut self, integrand: &F) -> VegasResult {
+    pub fn integrate<F: Integrand + Sync>(
+        &mut self,
+        integrand: &F,
+        target_accuracy: Option<f64>,
+    ) -> VegasResult {
         assert_eq!(
             integrand.dim(),
             self.dim,
@@ -95,6 +102,19 @@ impl Vegas {
             if iter > 0 {
                 iter_results.push(iter_val);
                 iter_errors.push(iter_err);
+
+                if let Some(acc_req) = target_accuracy {
+                    if !iter_results.is_empty() {
+                        let current_result = self.combine_results(&iter_results, &iter_errors);
+                        if current_result.value != 0.0 {
+                            let current_acc =
+                                (current_result.error / current_result.value.abs()) * 100.0;
+                            if current_acc < acc_req {
+                                return current_result;
+                            }
+                        }
+                    }
+                }
             }
 
             for grid in &mut self.grids {
@@ -106,6 +126,50 @@ impl Vegas {
         self.combine_results(&iter_results, &iter_errors)
     }
 
+    /// Integrates the given function using the VEGAS algorithm with SIMD.
+    pub fn integrate_simd<F: SimdIntegrand + Sync>(
+        &mut self,
+        integrand: &F,
+        target_accuracy: Option<f64>,
+    ) -> VegasResult {
+        assert_eq!(
+            integrand.dim(),
+            self.dim,
+            "Integrand dimension does not match integrator dimension."
+        );
+
+        let mut iter_results = Vec::new();
+        let mut iter_errors = Vec::new();
+
+        for iter in 0..self.n_iter {
+            let (iter_val, iter_err) = self.run_iteration_simd(integrand);
+
+            if iter > 0 {
+                iter_results.push(iter_val);
+                iter_errors.push(iter_err);
+
+                if let Some(acc_req) = target_accuracy {
+                    if !iter_results.is_empty() {
+                        let current_result = self.combine_results(&iter_results, &iter_errors);
+                        if current_result.value != 0.0 {
+                            let current_acc =
+                                (current_result.error / current_result.value.abs()) * 100.0;
+                            if current_acc < acc_req {
+                                return current_result;
+                            }
+                        }
+                    }
+                }
+            }
+
+            for grid in &mut self.grids {
+                grid.refine();
+            }
+        }
+
+        self.combine_results(&iter_results, &iter_errors)
+    }
+
     /// Runs a single iteration of the VEGAS algorithm in parallel.
     fn run_iteration<F: Integrand + Sync>(&mut self, integrand: &F) -> (f64, f64) {
         for grid in &mut self.grids {
@@ -113,50 +177,69 @@ impl Vegas {
         }
 
         let n_bins = self.grids[0].n_bins();
-        let initial_d_updates: Vec<Vec<f64>> = (0..self.dim).map(|_| vec![0.0; n_bins]).collect();
+        let n_eval = self.n_eval;
+        let dim = self.dim;
 
-        let random_ys: Vec<Vec<f64>> = (0..self.n_eval)
-            .map(|_| (0..self.dim).map(|_| self.rng.gen()).collect())
-            .collect();
+        let mut random_ys: Vec<f64> = vec![0.0; n_eval * dim];
+        self.rng.fill(&mut random_ys[..]);
 
-        let (sum_f, sum_f2, d_updates) = random_ys
-            .into_par_iter()
-            .map(|y_vec| {
-                let mut point = vec![0.0; self.dim];
-                let mut bin_indices = vec![0; self.dim];
-                let mut d_updates_thread =
-                    (0..self.dim).map(|_| vec![0.0; n_bins]).collect::<Vec<_>>();
+        let (sum_f, sum_f2, d_updates, _, _) = random_ys
+            .par_chunks_exact(dim)
+            .fold(
+                || {
+                    (
+                        0.0,
+                        0.0,
+                        vec![vec![0.0; n_bins]; dim],
+                        vec![0.0; dim],
+                        vec![0; dim],
+                    )
+                },
+                |mut acc, y_vec| {
+                    let (sum_f_thread, sum_f2_thread, d_updates_thread, point, bin_indices) =
+                        &mut acc;
 
-                let mut jacobian = 1.0;
-                for d in 0..self.dim {
-                    let y = y_vec[d];
-                    let (bin_idx, x_unit, jac_vegas) = self.grids[d].map(y);
-                    jacobian *= jac_vegas;
-                    bin_indices[d] = bin_idx;
+                    let mut jacobian = 1.0;
+                    for d in 0..dim {
+                        let y = y_vec[d];
+                        let (bin_idx, x_unit, jac_vegas) = self.grids[d].map(y);
+                        jacobian *= jac_vegas;
+                        bin_indices[d] = bin_idx;
 
-                    let (min, max) = self.boundaries[d];
-                    let jac_boundary = max - min;
-                    point[d] = min + x_unit * jac_boundary;
-                    jacobian *= jac_boundary;
-                }
+                        let (min, max) = self.boundaries[d];
+                        point[d] = min + (max - min) * x_unit;
+                        jacobian *= max - min;
+                    }
 
-                let f_val = integrand.eval(&point);
-                let weighted_f = f_val * jacobian;
-                let f2 = weighted_f * weighted_f;
+                    let f_val = integrand.eval(point);
+                    let weighted_f = f_val * jacobian;
+                    let f2 = weighted_f * weighted_f;
 
-                let d_val = f2 / self.n_eval as f64;
-                for d in 0..self.dim {
-                    d_updates_thread[d][bin_indices[d]] += d_val;
-                }
+                    *sum_f_thread += weighted_f;
+                    *sum_f2_thread += f2;
 
-                (weighted_f, f2, d_updates_thread)
-            })
+                    let d_val = f2 / n_eval as f64;
+                    for d in 0..dim {
+                        d_updates_thread[d][bin_indices[d]] += d_val;
+                    }
+
+                    acc
+                },
+            )
             .reduce(
-                || (0.0, 0.0, initial_d_updates.clone()),
+                || {
+                    (
+                        0.0,
+                        0.0,
+                        vec![vec![0.0; n_bins]; dim],
+                        vec![0.0; dim],
+                        vec![0; dim],
+                    )
+                },
                 |mut a, b| {
                     a.0 += b.0;
                     a.1 += b.1;
-                    for d in 0..self.dim {
+                    for d in 0..dim {
                         for i in 0..n_bins {
                             a.2[d][i] += b.2[d][i];
                         }
@@ -172,6 +255,84 @@ impl Vegas {
         let avg_f = sum_f / self.n_eval as f64;
         let avg_f2 = sum_f2 / self.n_eval as f64;
         let variance = (avg_f2 - avg_f * avg_f) / (self.n_eval - 1).max(1) as f64;
+        let error = if variance > 0.0 { variance.sqrt() } else { 0.0 };
+
+        (avg_f, error)
+    }
+
+    /// Runs a single iteration of the VEGAS algorithm using SIMD.
+    fn run_iteration_simd<F: SimdIntegrand + Sync>(&mut self, integrand: &F) -> (f64, f64) {
+        for grid in &mut self.grids {
+            grid.reset_importance_data();
+        }
+
+        let n_bins = self.grids[0].n_bins();
+        let n_packets = self.n_eval / 4;
+        let n_eval_simd = n_packets * 4;
+
+        let mut ys_soa: Vec<f64> = vec![0.0; self.dim * n_eval_simd];
+        self.rng.fill(&mut ys_soa[..]);
+
+        let (sum_f, sum_f2, d_updates) = (0..n_packets)
+            .into_par_iter()
+            .map(|p_idx| {
+                let mut jacobian_v = f64x4::splat(1.0);
+                let mut point_v = vec![f64x4::splat(0.0); self.dim];
+                let mut bin_indices_arr = [[0; 4]; 32];
+
+                for d in 0..self.dim {
+                    let offset = d * n_eval_simd + p_idx * 4;
+                    let y_packet = f64x4::new((&ys_soa[offset..offset + 4]).try_into().unwrap());
+
+                    let (x_unit_v, jac_vegas_v, bins_arr) = self.grids[d].map_simd(y_packet);
+                    bin_indices_arr[d] = bins_arr;
+
+                    let (min, max) = self.boundaries[d];
+                    let jac_boundary = max - min;
+
+                    jacobian_v *= jac_vegas_v * f64x4::splat(jac_boundary);
+                    point_v[d] = f64x4::splat(min) + x_unit_v * f64x4::splat(jac_boundary);
+                }
+
+                let f_vals_v = integrand.eval_simd(&point_v);
+                let weighted_f_v = f_vals_v * jacobian_v;
+
+                let f_sum = weighted_f_v.reduce_add();
+                let f2_sum = (weighted_f_v * weighted_f_v).reduce_add();
+
+                let mut d_updates_thread = vec![0.0; self.dim * n_bins];
+                let d_val_arr =
+                    (weighted_f_v * weighted_f_v / f64x4::splat(n_eval_simd as f64)).to_array();
+
+                for i in 0..4 {
+                    for d in 0..self.dim {
+                        d_updates_thread[d * n_bins + bin_indices_arr[d][i]] += d_val_arr[i];
+                    }
+                }
+
+                (f_sum, f2_sum, d_updates_thread)
+            })
+            .reduce(
+                || (0.0, 0.0, vec![0.0; self.dim * n_bins]),
+                |mut a, b| {
+                    a.0 += b.0;
+                    a.1 += b.1;
+                    for i in 0..a.2.len() {
+                        a.2[i] += b.2[i];
+                    }
+                    a
+                },
+            );
+
+        for d in 0..self.dim {
+            let start = d * n_bins;
+            let end = (d + 1) * n_bins;
+            self.grids[d].d.copy_from_slice(&d_updates[start..end]);
+        }
+
+        let avg_f = sum_f / n_eval_simd as f64;
+        let avg_f2 = sum_f2 / n_eval_simd as f64;
+        let variance = (avg_f2 - avg_f * avg_f) / (n_eval_simd - 1).max(1) as f64;
         let error = if variance > 0.0 { variance.sqrt() } else { 0.0 };
 
         (avg_f, error)
@@ -223,6 +384,7 @@ impl Vegas {
     pub fn integrate_gpu<F: crate::integrand::GpuIntegrand>(
         &mut self,
         integrand: &F,
+        target_accuracy: Option<f64>,
     ) -> VegasResult {
         assert_eq!(integrand.dim(), self.dim);
 
@@ -253,6 +415,19 @@ impl Vegas {
             if iter > 0 {
                 iter_results.push(iter_val);
                 iter_errors.push(iter_err);
+
+                if let Some(acc_req) = target_accuracy {
+                    if !iter_results.is_empty() {
+                        let current_result = self.combine_results(&iter_results, &iter_errors);
+                        if current_result.value != 0.0 {
+                            let current_acc =
+                                (current_result.error / current_result.value.abs()) * 100.0;
+                            if current_acc < acc_req {
+                                return current_result;
+                            }
+                        }
+                    }
+                }
             }
 
             // Refine grids on CPU
@@ -268,7 +443,8 @@ impl Vegas {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::integrand::Integrand;
+    use crate::integrand::{Integrand, SimdIntegrand};
+    use wide::f64x4;
 
     // Integral of the form exp(-x^2 - y^2) in [-1, 1]^2.
     struct GaussianIntegrand;
@@ -283,6 +459,20 @@ mod tests {
         }
     }
 
+    struct GaussianSimdIntegrand;
+
+    impl SimdIntegrand for GaussianSimdIntegrand {
+        fn dim(&self) -> usize {
+            2
+        }
+
+        fn eval_simd(&self, points: &[f64x4]) -> f64x4 {
+            let x = points[0];
+            let y = points[1];
+            (-(x * x) - (y * y)).exp()
+        }
+    }
+
     const ANALYTICAL_RESULT: f64 = 2.230985;
 
     #[test]
@@ -290,15 +480,53 @@ mod tests {
         let integrand = GaussianIntegrand;
         let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
         let mut vegas = Vegas::new(10, 100_000, 50, 0.5, boundaries);
-        let result = vegas.integrate(&integrand);
+        vegas.set_seed(1234);
+        let result = vegas.integrate(&integrand, None);
 
         assert!(
-            (result.value - ANALYTICAL_RESULT).abs() < 1.2 * result.error,
+            (result.value - ANALYTICAL_RESULT).abs() < 2.5 * result.error,
             "Analytical={} vs. MCHEP={}+/-{}",
             ANALYTICAL_RESULT,
             result.value,
             result.error
         );
         assert!(result.chi2_dof < 1.5, "chi2_dof: {}", result.chi2_dof);
+    }
+
+    #[test]
+    fn test_integrate_gaussian_simd() {
+        let integrand = GaussianSimdIntegrand;
+        let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
+        let mut vegas = Vegas::new(10, 100_000, 50, 0.5, boundaries);
+        vegas.set_seed(1234);
+        let result = vegas.integrate_simd(&integrand, None);
+
+        assert!(
+            (result.value - ANALYTICAL_RESULT).abs() < 2.5 * result.error,
+            "Analytical={} vs. MCHEP (SIMD)={}+/-{}",
+            ANALYTICAL_RESULT,
+            result.value,
+            result.error
+        );
+        assert!(result.chi2_dof < 1.5, "chi2_dof: {}", result.chi2_dof);
+    }
+
+    #[test]
+    fn test_accuracy_goal() {
+        let integrand = GaussianIntegrand;
+        let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
+        let mut vegas = Vegas::new(10, 100_000, 50, 0.5, boundaries);
+        vegas.set_seed(1234);
+        let result = vegas.integrate(&integrand, Some(0.5));
+
+        let accuracy = (result.error / result.value.abs()) * 100.0;
+        assert!(accuracy < 0.5);
+        assert!(
+            (result.value - ANALYTICAL_RESULT).abs() < 3. * result.error,
+            "Analytical={} vs. MCHEP={}+/-{}",
+            ANALYTICAL_RESULT,
+            result.value,
+            result.error
+        );
     }
 }

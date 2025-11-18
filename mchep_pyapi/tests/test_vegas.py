@@ -3,7 +3,7 @@
 import math
 import numpy as np
 
-from mchep.vegas import Vegas, VegasPlus, Integrand
+from mchep.vegas import Vegas, VegasPlus, Integrand, SimdIntegrand
 
 
 MULTIPLIER = 2.5
@@ -44,6 +44,59 @@ def test_2d_gaussian():
     )
 
     result = vegas.integrate(gaussian)
+    assert abs(result.value - expected) <= MULTIPLIER * result.error
+
+
+def test_2d_gaussian_simd():
+    """Test 2D Gaussian ∫∫exp(-x²-y²) dx over [-1,1]² using SIMD"""
+    expected = 2.230985
+
+    def gaussian_simd(x_soa):
+        results = [0.0] * 4
+        for i in range(4):
+            x_i = x_soa[0][i]
+            y_i = x_soa[1][i]
+            results[i] = math.exp(-(x_i**2 + y_i**2))
+        return results
+
+    vegas = Vegas(
+        n_iter=10,
+        n_eval=50_000,
+        n_bins=50,
+        alpha=0.5,
+        boundaries=[(-1.0, 1.0), (-1.0, 1.0)],
+    )
+    vegas.set_seed(1234)
+
+    result = vegas.integrate_simd(gaussian_simd)
+    assert abs(result.value - expected) <= MULTIPLIER * result.error
+
+
+def test_simd_integrand_class():
+    """Test using SimdIntegrand wrapper for 2D Gaussian with SIMD"""
+    expected = 2.230985
+
+    class GaussianSimdClass:
+        def __call__(self, x_soa):
+            results = [0.0] * 4
+            for i in range(4):
+                x_i = x_soa[0][i]
+                y_i = x_soa[1][i]
+                results[i] = math.exp(-(x_i**2 + y_i**2))
+            return results
+
+    integrand = SimdIntegrand(GaussianSimdClass(), dim=2)
+
+    vegas = Vegas(
+        n_iter=10,
+        n_eval=50_000,
+        n_bins=50,
+        alpha=0.5,
+        boundaries=[(-1.0, 1.0), (-1.0, 1.0)],
+    )
+    vegas.set_seed(1234)
+
+    result = vegas.integrate_simd_integrand(integrand)
     assert abs(result.value - expected) <= MULTIPLIER * result.error
 
 
@@ -204,3 +257,105 @@ def test_seeding():
 
     np.testing.assert_almost_equal(result_plus1.value, result_plus2.value)
     np.testing.assert_almost_equal(result_plus1.error, result_plus2.error)
+
+
+def test_accuracy_goal():
+    """Test that the integration stops when the accuracy goal is reached."""
+    expected = 2.230985
+
+    def gaussian(x):
+        return math.exp(-(x[0] ** 2 + x[1] ** 2))
+
+    vegas = Vegas(
+        n_iter=20,  # More iterations to ensure accuracy is met
+        n_eval=100_000,
+        n_bins=50,
+        alpha=0.5,
+        boundaries=[(-1.0, 1.0), (-1.0, 1.0)],
+    )
+    vegas.set_seed(1234)
+
+    # Set a reasonable accuracy goal
+    target_accuracy = 0.1  # 0.1%
+    result = vegas.integrate(gaussian, target_accuracy=target_accuracy)
+
+    # Check that the result is within the target accuracy
+    assert (result.error / abs(result.value)) * 100.0 < target_accuracy
+    assert abs(result.value - expected) <= MULTIPLIER * result.error
+
+    vegas_plus = VegasPlus(
+        n_iter=20,
+        n_eval=100_000,
+        n_bins=50,
+        alpha=0.5,
+        n_strat=4,
+        beta=0.75,
+        boundaries=[(-1.0, 1.0), (-1.0, 1.0)],
+    )
+    vegas_plus.set_seed(1234)
+    result_plus = vegas_plus.integrate(gaussian, target_accuracy=target_accuracy)
+    assert (result_plus.error / abs(result_plus.value)) * 100.0 < target_accuracy
+    assert abs(result_plus.value - expected) <= MULTIPLIER * result_plus.error
+
+
+def test_non_rectangular_volume():
+    """Test a 4D integral over a spherical volume.
+
+    This demonstrates how to integrate over a non-rectangular volume by
+    defining the integrand function to be zero outside the desired region.
+    """
+    expected = 1.0
+
+    def f_sph(x):
+        """A 4D Gaussian-like function defined within a sphere.
+
+        The function is non-zero only inside a sphere of radius 0.2 centered
+        at (0.5, 0.5, 0.5, 0.5).
+        """
+        dx2 = 0.0
+        for d in range(4):
+            dx2 += (x[d] - 0.5) ** 2
+
+        if dx2 < 0.2**2:
+            return math.exp(-dx2 * 100.0) * 1115.3539360527281318
+        else:
+            return 0.0
+
+    vegas = Vegas(
+        n_iter=10,
+        n_eval=200_000,
+        n_bins=50,
+        alpha=0.5,
+        boundaries=[(0.0, 1.0), (0.0, 1.0), (0.0, 1.0), (0.0, 1.0)],
+    )
+    vegas.set_seed(4321)
+
+    result = vegas.integrate(f_sph)
+    assert abs(result.value - expected) <= MULTIPLIER * result.error
+
+
+def test_vegasplus_simd():
+    """Test VegasPlus integrator for 2D Gaussian with SIMD"""
+    expected = 2.230985
+
+    def gaussian_simd(x_soa):
+        results = [0.0] * 4
+        for i in range(4):
+            x_i = x_soa[0][i]
+            y_i = x_soa[1][i]
+            results[i] = math.exp(-(x_i**2 + y_i**2))
+        return results
+
+    vegas_plus = VegasPlus(
+        n_iter=10,
+        n_eval=50_000,
+        n_bins=50,
+        alpha=0.5,
+        n_strat=4,
+        beta=0.75,
+        boundaries=[(-1.0, 1.0), (-1.0, 1.0)],
+    )
+    vegas_plus.set_seed(1234)
+
+    result = vegas_plus.integrate_simd(gaussian_simd)
+    assert abs(result.value - expected) <= MULTIPLIER * result.error

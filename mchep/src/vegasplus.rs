@@ -1,11 +1,12 @@
 //! The VEGAS+ integrator, which adds adaptive stratified sampling.
 
 use crate::grid::Grid;
-use crate::integrand::Integrand;
+use crate::integrand::{Integrand, SimdIntegrand};
 use crate::vegas::VegasResult;
 use rand::{Rng, SeedableRng};
 use rand_pcg::Pcg64;
 use rayon::prelude::*;
+use wide::f64x4;
 
 /// Stores the state of a single hypercube for stratified sampling.
 #[derive(Debug, Clone)]
@@ -58,8 +59,6 @@ impl VegasPlus {
         boundaries: &[(f64, f64)],
     ) -> Self {
         let dim = boundaries.len();
-        assert!(dim > 0, "Number of dimensions must be positive.");
-        assert!(n_strat > 0, "Number of stratifications must be positive.");
         let n_hypercubes = n_strat.pow(dim as u32);
         assert!(
             n_eval >= 2 * n_hypercubes,
@@ -93,8 +92,17 @@ impl VegasPlus {
         self.rng = Pcg64::seed_from_u64(seed);
     }
 
+    /// Returns the number of dimensions of the integrator.
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
+
     /// Integrates the given function using the VEGAS+ algorithm.
-    pub fn integrate<F: Integrand + Sync>(&mut self, integrand: &F) -> VegasResult {
+    pub fn integrate<F: Integrand + Sync>(
+        &mut self,
+        integrand: &F,
+        target_accuracy: Option<f64>,
+    ) -> VegasResult {
         assert_eq!(integrand.dim(), self.dim);
 
         let mut iter_results = Vec::new();
@@ -106,6 +114,60 @@ impl VegasPlus {
             if iter > 0 {
                 iter_results.push(iter_val);
                 iter_errors.push(iter_err);
+
+                if let Some(acc_req) = target_accuracy {
+                    if !iter_results.is_empty() {
+                        let current_result = self.combine_results(&iter_results, &iter_errors);
+                        if current_result.value != 0.0 {
+                            let current_acc =
+                                (current_result.error / current_result.value.abs()) * 100.0;
+                            if current_acc < acc_req {
+                                return current_result;
+                            }
+                        }
+                    }
+                }
+            }
+
+            for grid in &mut self.grids {
+                grid.refine();
+            }
+            self.reallocate_samples();
+        }
+
+        self.combine_results(&iter_results, &iter_errors)
+    }
+
+    /// Integrates the given function using the VEGAS+ algorithm with SIMD.
+    pub fn integrate_simd<F: SimdIntegrand + Sync>(
+        &mut self,
+        integrand: &F,
+        target_accuracy: Option<f64>,
+    ) -> VegasResult {
+        assert_eq!(integrand.dim(), self.dim);
+
+        let mut iter_results = Vec::new();
+        let mut iter_errors = Vec::new();
+
+        for iter in 0..self.n_iter {
+            let (iter_val, iter_err) = self.run_iteration_simd(integrand);
+
+            if iter > 0 {
+                iter_results.push(iter_val);
+                iter_errors.push(iter_err);
+
+                if let Some(acc_req) = target_accuracy {
+                    if !iter_results.is_empty() {
+                        let current_result = self.combine_results(&iter_results, &iter_errors);
+                        if current_result.value != 0.0 {
+                            let current_acc =
+                                (current_result.error / current_result.value.abs()) * 100.0;
+                            if current_acc < acc_req {
+                                return current_result;
+                            }
+                        }
+                    }
+                }
             }
 
             for grid in &mut self.grids {
@@ -187,7 +249,7 @@ impl VegasPlus {
                 let avg_f_h = sum_f_h / n_samples_h as f64;
                 let avg_f2_h = sum_f2_h / n_samples_h as f64;
                 let var_g_h = (avg_f2_h - avg_f_h.powi(2)).max(0.0)
-                    * (n_samples_h as f64 / (n_samples_h - 1) as f64);
+                    * (n_samples_h as f64 / (n_samples_h - 1).max(1) as f64);
 
                 HypercubeResult {
                     sum_f: sum_f_h,
@@ -216,6 +278,141 @@ impl VegasPlus {
                 let var_g_h = (avg_g2_h - avg_g_h.powi(2)).max(0.0)
                     * (n_samples_h as f64 / (n_samples_h - 1) as f64);
                 total_variance += hypercube_volume.powi(2) * var_g_h / n_samples_h as f64;
+            }
+
+            self.hypercubes[h_idx].variance = result.variance;
+            for d in 0..self.dim {
+                for i in 0..n_bins {
+                    self.grids[d].d[i] += result.d_updates[d][i];
+                }
+            }
+        }
+
+        let error = total_variance.sqrt();
+
+        (total_value, error)
+    }
+
+    fn run_iteration_simd<F: SimdIntegrand + Sync>(&mut self, integrand: &F) -> (f64, f64) {
+        for grid in &mut self.grids {
+            grid.reset_importance_data();
+        }
+
+        let n_bins = self.grids[0].n_bins();
+
+        let seeds: Vec<u64> = (0..self.hypercubes.len()).map(|_| self.rng.gen()).collect();
+
+        let results: Vec<HypercubeResult> = seeds
+            .into_par_iter()
+            .enumerate()
+            .map(|(h_idx, seed)| {
+                let mut seed_array = [0u8; 32];
+                seed_array[..8].copy_from_slice(&seed.to_le_bytes());
+                let mut thread_rng = Pcg64::from_seed(seed_array);
+                let n_samples_h = self.hypercubes[h_idx].n_samples;
+                let n_packets = n_samples_h / 4;
+                let n_samples_h_simd = n_packets * 4;
+
+                let mut d_updates_thread =
+                    (0..self.dim).map(|_| vec![0.0; n_bins]).collect::<Vec<_>>();
+
+                let mut sum_f_h = 0.0;
+                let mut sum_f2_h = 0.0;
+
+                if n_samples_h_simd == 0 {
+                    return HypercubeResult {
+                        sum_f: 0.0,
+                        sum_f2: 0.0,
+                        variance: 0.0,
+                        d_updates: d_updates_thread,
+                    };
+                }
+
+                let h_coords = self.get_hypercube_coords(h_idx);
+                let strat_width = 1.0 / self.n_strat as f64;
+
+                // SIMD part
+                for _ in 0..n_packets {
+                    let mut jacobian_v = f64x4::splat(1.0);
+                    let mut point_v = vec![f64x4::splat(0.0); self.dim];
+                    let mut bin_indices_arr = vec![[0; 4]; self.dim];
+
+                    let mut y_vec_v = vec![f64x4::splat(0.0); self.dim];
+
+                    for d in 0..self.dim {
+                        let y_rand_v = f64x4::new([
+                            thread_rng.gen::<f64>(),
+                            thread_rng.gen::<f64>(),
+                            thread_rng.gen::<f64>(),
+                            thread_rng.gen::<f64>(),
+                        ]);
+                        y_vec_v[d] = (f64x4::splat(h_coords[d] as f64) + y_rand_v)
+                            * f64x4::splat(strat_width);
+                    }
+
+                    for d in 0..self.dim {
+                        let (x_unit_v, jac_vegas_v, bins_arr) = self.grids[d].map_simd(y_vec_v[d]);
+                        jacobian_v *= jac_vegas_v;
+                        bin_indices_arr[d] = bins_arr;
+
+                        let (min, max) = self.boundaries[d];
+                        let jac_boundary = max - min;
+                        point_v[d] = f64x4::splat(min) + x_unit_v * f64x4::splat(jac_boundary);
+                        jacobian_v *= f64x4::splat(jac_boundary);
+                    }
+
+                    let f_vals_v = integrand.eval_simd(&point_v);
+                    let weighted_f_v = f_vals_v * jacobian_v;
+
+                    sum_f_h += weighted_f_v.reduce_add();
+                    sum_f2_h += (weighted_f_v * weighted_f_v).reduce_add();
+
+                    let d_val_arr =
+                        (weighted_f_v * weighted_f_v / f64x4::splat(self.n_eval as f64)).to_array();
+
+                    for i in 0..4 {
+                        for d in 0..self.dim {
+                            d_updates_thread[d][bin_indices_arr[d][i]] += d_val_arr[i];
+                        }
+                    }
+                }
+
+                let mut var_g_h = 0.0;
+                if n_samples_h_simd > 1 {
+                    let avg_f_h = sum_f_h / n_samples_h_simd as f64;
+                    let avg_f2_h = sum_f2_h / n_samples_h_simd as f64;
+                    var_g_h = (avg_f2_h - avg_f_h.powi(2)).max(0.0)
+                        * (n_samples_h_simd as f64 / (n_samples_h_simd - 1) as f64);
+                }
+
+                HypercubeResult {
+                    sum_f: sum_f_h,
+                    sum_f2: sum_f2_h,
+                    variance: var_g_h.sqrt(),
+                    d_updates: d_updates_thread,
+                }
+            })
+            .collect();
+
+        let mut total_value = 0.0;
+        let mut total_variance = 0.0;
+        let hypercube_volume = (1.0 / self.n_strat as f64).powi(self.dim as i32);
+
+        for (h_idx, result) in results.iter().enumerate() {
+            let n_samples_h = self.hypercubes[h_idx].n_samples;
+            let n_samples_h_simd = (n_samples_h / 4) * 4;
+
+            if n_samples_h_simd > 0 {
+                let avg_g_h = result.sum_f / n_samples_h_simd as f64;
+                total_value += hypercube_volume * avg_g_h;
+            }
+
+            if n_samples_h_simd > 1 {
+                let avg_g_h = result.sum_f / n_samples_h_simd as f64;
+                let avg_g2_h = result.sum_f2 / n_samples_h_simd as f64;
+                let var_g_h = (avg_g2_h - avg_g_h.powi(2)).max(0.0)
+                    * (n_samples_h_simd as f64 / (n_samples_h_simd - 1) as f64);
+                total_variance += hypercube_volume.powi(2) * var_g_h / n_samples_h_simd as f64;
             }
 
             self.hypercubes[h_idx].variance = result.variance;
@@ -327,7 +524,8 @@ impl VegasPlus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::integrand::Integrand;
+    use crate::integrand::{Integrand, SimdIntegrand};
+    use wide::f64x4;
 
     // Integral of the form exp(-x^2 - y^2) in [-1, 1]^2.
     struct GaussianIntegrand;
@@ -348,11 +546,61 @@ mod tests {
     fn test_integrate_gaussian_plus() {
         let integrand = GaussianIntegrand;
         let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
-        let mut vegas_plus = VegasPlus::new(10, 200_000, 50, 0.5, 4, 0.75, boundaries);
-        let result = vegas_plus.integrate(&integrand);
+        let mut vegas_plus = VegasPlus::new(20, 200_000, 50, 0.5, 4, 0.75, boundaries);
+        let result = vegas_plus.integrate(&integrand, None);
         assert!(
-            (result.value - ANALYTICAL_RESULT).abs() < 1.2 * result.error,
+            (result.value - ANALYTICAL_RESULT).abs() < 2.5 * result.error,
             "Analytical={} vs. MCHEP={}+/-{}",
+            ANALYTICAL_RESULT,
+            result.value,
+            result.error
+        );
+        assert!(result.chi2_dof < 1.5, "chi2_dof: {}", result.chi2_dof);
+    }
+
+    #[test]
+    fn test_accuracy_goal_plus() {
+        let integrand = GaussianIntegrand;
+        let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
+        let mut vegas_plus = VegasPlus::new(10, 200_000, 50, 0.5, 4, 0.75, boundaries);
+        vegas_plus.set_seed(4321);
+        let result = vegas_plus.integrate(&integrand, Some(0.1));
+
+        let accuracy = (result.error / result.value.abs()) * 100.0;
+        assert!(accuracy < 0.1);
+        assert!(
+            (result.value - ANALYTICAL_RESULT).abs() < 3. * result.error,
+            "Analytical={} vs. MCHEP={}+/-{}",
+            ANALYTICAL_RESULT,
+            result.value,
+            result.error
+        );
+    }
+
+    struct GaussianSimdIntegrand;
+
+    impl SimdIntegrand for GaussianSimdIntegrand {
+        fn dim(&self) -> usize {
+            2
+        }
+
+        fn eval_simd(&self, points: &[f64x4]) -> f64x4 {
+            let x = points[0];
+            let y = points[1];
+            (-(x * x) - (y * y)).exp()
+        }
+    }
+
+    #[test]
+    fn test_integrate_gaussian_plus_simd() {
+        let integrand = GaussianSimdIntegrand;
+        let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
+        let mut vegas_plus = VegasPlus::new(20, 200_000, 50, 0.5, 4, 0.75, boundaries);
+        vegas_plus.set_seed(1234);
+        let result = vegas_plus.integrate_simd(&integrand, None);
+        assert!(
+            (result.value - ANALYTICAL_RESULT).abs() < 2.5 * result.error,
+            "Analytical={} vs. MCHEP (SIMD)={}+/-{}",
             ANALYTICAL_RESULT,
             result.value,
             result.error

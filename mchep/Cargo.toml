@@ -8,12 +8,31 @@ categories.workspace = true
 keywords.workspace = true
 
 [dependencies]
-rand = { workspace = true, features = ["std", "std_rng"] }
+rand = { workspace = true }
 rand_pcg = { workspace = true }
 rayon = { workspace = true }
-mpi = { workspace = true, optional = true }
-cust = { workspace = true, optional = true }
+itertools = { workspace = true }
+thiserror = { workspace = true }
+num-traits = { workspace = true }
+wide = { workspace = true }
 
 [features]
-mpi = ["dep:mpi"]
 gpu = ["dep:cust"]
+mpi = ["dep:mpi"]
+
+[dependencies.cust]
+workspace = true
+optional = true
+
+[dependencies.mpi]
+workspace = true
+optional = true
+features = ["user-operations"]
+
+[dev-dependencies]
+assert_approx_eq = "1.1.0"
+criterion = "0.5"
+
+[[bench]]
+name = "vegas_benchmark"
+harness = false

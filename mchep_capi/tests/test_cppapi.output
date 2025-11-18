@@ -7,3 +7,7 @@ Result 2: 2.23093 +/- 0.000105833
 Same seed test passed.
 Result 3: 2.23088 +/- 0.000106151
 Different seed test passed.
+
+Testing C++ API accuracy goal...
+Accuracy goal test: value=2.23099, error=2.1762e-06, acc=9.75443e-05
+Accuracy goal test passed.

@@ -3,14 +3,24 @@ name = "mchep_capi"
 authors = ["Tanjona R. Rabemananjara <tanjona.hepc@gmail.com>"]
 description = "C language interface to NeoPDF"
 readme = "README.md"
-version = "0.1.0"
-edition = "2021"
+build = "build.rs"
+
+categories.workspace = true
+edition.workspace = true
+keywords.workspace = true
+license.workspace = true
+repository.workspace = true
+version.workspace = true
 
 [dependencies]
 mchep = { path = "../mchep" }
+wide = { workspace = true }
 
 [build-dependencies]
 cbindgen = "0.26.0"
 
 [features]
 capi = []
+
+[lints]
+workspace = true

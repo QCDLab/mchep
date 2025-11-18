@@ -1,0 +1,7 @@
+Testing 2D Gaussian integral (SIMD)...
+Test passed!
+Result: 2.230914 +/- 0.000107
+
+Testing C++ API SIMD accuracy goal...
+Accuracy goal test: value=2.230734, error=0.001413, acc=0.063336
+Accuracy goal test passed.
