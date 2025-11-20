@@ -1,12 +1,26 @@
 //! The VEGAS+ integrator, which adds adaptive stratified sampling.
 
-use crate::grid::Grid;
-use crate::integrand::{Integrand, SimdIntegrand};
-use crate::vegas::VegasResult;
 use rand::{Rng, SeedableRng};
 use rand_pcg::Pcg64;
 use rayon::prelude::*;
 use wide::f64x4;
+
+use crate::grid::Grid;
+use crate::integrand::{Integrand, SimdIntegrand};
+use crate::vegas::VegasResult;
+
+#[cfg(feature = "gpu")]
+use crate::gpu::GpuBackend;
+#[cfg(feature = "gpu")]
+use crate::integrand::BurnIntegrand;
+#[cfg(feature = "gpu")]
+use burn::prelude::*;
+#[cfg(feature = "gpu")]
+use burn::tensor::{Distribution, Int};
+#[cfg(feature = "gpu")]
+use bytemuck;
+#[cfg(feature = "gpu")]
+use std::error::Error;
 
 /// Stores the state of a single hypercube for stratified sampling.
 #[derive(Debug, Clone)]
@@ -177,6 +191,219 @@ impl VegasPlus {
         }
 
         self.combine_results(&iter_results, &iter_errors)
+    }
+
+    #[cfg(feature = "gpu")]
+    pub fn integrate_gpu<F: crate::integrand::BurnIntegrand<crate::gpu::GpuBackend> + Sync>(
+        &mut self,
+        integrand: &F,
+        target_accuracy: Option<f64>,
+    ) -> VegasResult {
+        assert_eq!(integrand.dim(), self.dim);
+
+        let gpu_integrator = match crate::gpu::BurnIntegrator::new() {
+            Ok(integrator) => integrator,
+            Err(e) => {
+                panic!("Failed to initialize GPU integrator: {}", e);
+            }
+        };
+
+        let mut iter_results = Vec::new();
+        let mut iter_errors = Vec::new();
+
+        for iter in 0..self.n_iter {
+            let (iter_val, iter_err) = self.run_iteration_gpu(&gpu_integrator, integrand).unwrap();
+
+            if iter > 0 {
+                iter_results.push(iter_val);
+                iter_errors.push(iter_err);
+
+                if let Some(acc_req) = target_accuracy {
+                    if !iter_results.is_empty() {
+                        let current_result = self.combine_results(&iter_results, &iter_errors);
+                        if current_result.value != 0.0 {
+                            let current_acc =
+                                (current_result.error / current_result.value.abs()) * 100.0;
+                            if current_acc < acc_req {
+                                return current_result;
+                            }
+                        }
+                    }
+                }
+            }
+
+            for grid in &mut self.grids {
+                grid.refine();
+            }
+            self.reallocate_samples();
+        }
+
+        self.combine_results(&iter_results, &iter_errors)
+    }
+
+    #[cfg(feature = "gpu")]
+    fn run_iteration_gpu<F: BurnIntegrand<GpuBackend> + Sync>(
+        &mut self,
+        gpu_integrator: &crate::gpu::BurnIntegrator,
+        integrand: &F,
+    ) -> Result<(f64, f64), Box<dyn Error>> {
+        for grid in &mut self.grids {
+            grid.reset_importance_data();
+        }
+
+        let device = &gpu_integrator.device;
+        let n_bins = self.grids[0].n_bins();
+        let n_hypercubes = self.hypercubes.len();
+
+        let n_samples_per_hypercube: Vec<u32> =
+            self.hypercubes.iter().map(|h| h.n_samples as u32).collect();
+
+        let n_eval_actual = n_samples_per_hypercube.iter().sum::<u32>() as usize;
+
+        let mut point_to_hypercube_map: Vec<i32> = Vec::with_capacity(n_eval_actual);
+        for (h_idx, &n_samples) in n_samples_per_hypercube.iter().enumerate() {
+            point_to_hypercube_map.extend(std::iter::repeat(h_idx as i32).take(n_samples as usize));
+        }
+
+        let h_coords_per_hypercube: Vec<i32> = (0..n_hypercubes)
+            .flat_map(|h_idx| self.get_hypercube_coords(h_idx))
+            .map(|c| c as i32)
+            .collect();
+
+        let h_indices_gpu =
+            Tensor::<GpuBackend, 1, Int>::from_ints(&*point_to_hypercube_map, device);
+        let h_coords_gpu =
+            Tensor::<GpuBackend, 1, Int>::from_ints(&*h_coords_per_hypercube, device)
+                .reshape([n_hypercubes, self.dim]);
+
+        let y_rand = Tensor::random(
+            [n_eval_actual, self.dim],
+            Distribution::Uniform(0.0, 1.0),
+            device,
+        );
+
+        let h_indices_gpu_expanded = h_indices_gpu
+            .clone()
+            .reshape([n_eval_actual, 1])
+            .expand([n_eval_actual, self.dim]);
+        let h_coords_for_points = h_coords_gpu.gather(0, h_indices_gpu_expanded);
+        let strat_width = 1.0 / self.n_strat as f32;
+        let y_vec = (h_coords_for_points.float() + y_rand) * strat_width;
+
+        let mut jacobian: Tensor<GpuBackend, 1> = Tensor::ones([n_eval_actual], device);
+        let mut point: Tensor<GpuBackend, 2> = Tensor::zeros([n_eval_actual, self.dim], device);
+        let mut all_bin_indices: Tensor<GpuBackend, 2, Int> =
+            Tensor::zeros([n_eval_actual, self.dim], device);
+
+        let boundaries_f32: Vec<(f32, f32)> = self
+            .boundaries
+            .iter()
+            .map(|&(min, max)| (min as f32, max as f32))
+            .collect();
+
+        for d in 0..self.dim {
+            let y_d = y_vec
+                .clone()
+                .slice([0..n_eval_actual, d..d + 1])
+                .reshape([n_eval_actual]);
+
+            let bins_f32: Vec<f32> = self.grids[d].bins().iter().map(|&x| x as f32).collect();
+            let grid_bins_d = Tensor::<GpuBackend, 1>::from_floats(&*bins_f32, device);
+
+            let n_bins_d = n_bins as f32;
+            let y_scaled = y_d * n_bins_d;
+            let bin_indices_d = y_scaled.clone().floor().int();
+            let y_frac = y_scaled - bin_indices_d.clone().float();
+
+            let bin_indices_clamped = bin_indices_d.clone().clamp(0, (n_bins - 1) as i32);
+
+            let x_low = grid_bins_d.clone().gather(0, bin_indices_clamped.clone());
+            let x_high = grid_bins_d.gather(0, bin_indices_clamped.clone() + 1);
+
+            let width = x_high - x_low.clone();
+            let x_unit_d = x_low + y_frac * width.clone();
+            let jac_vegas_d = width * n_bins_d;
+
+            jacobian = jacobian.clone() * jac_vegas_d;
+
+            let (min_b, max_b) = boundaries_f32[d];
+            let jac_boundary = max_b - min_b;
+            let point_d = x_unit_d.mul_scalar(jac_boundary).add_scalar(min_b);
+            jacobian = jacobian.clone() * jac_boundary;
+
+            point = point.slice_assign(
+                [0..n_eval_actual, d..d + 1],
+                point_d.reshape([n_eval_actual, 1]),
+            );
+            all_bin_indices = all_bin_indices.slice_assign(
+                [0..n_eval_actual, d..d + 1],
+                bin_indices_clamped.reshape([n_eval_actual, 1]),
+            );
+        }
+
+        let f_val = integrand.eval_burn(point);
+        let weighted_f = f_val * jacobian;
+
+        let one_hot_hypercubes = h_indices_gpu.one_hot(n_hypercubes).float();
+        let sum_f_per_h = weighted_f
+            .clone()
+            .reshape([1, n_eval_actual])
+            .matmul(one_hot_hypercubes.clone());
+        let sum_f2_per_h = (weighted_f.clone() * weighted_f.clone())
+            .reshape([1, n_eval_actual])
+            .matmul(one_hot_hypercubes);
+
+        let sum_f_data = sum_f_per_h.to_data();
+        let d_updates_host = bytemuck::try_cast_slice(&sum_f_data.bytes).unwrap();
+        let sum_f_host: Vec<f32> = d_updates_host.to_vec();
+        let sum_f2_data = sum_f2_per_h.to_data();
+        let d_updates_host = bytemuck::try_cast_slice(&sum_f2_data.bytes).unwrap();
+        let sum_f2_host: Vec<f32> = d_updates_host.to_vec();
+
+        let mut total_value = 0.0;
+        let mut total_variance = 0.0;
+        let hypercube_volume = (1.0 / self.n_strat as f64).powi(self.dim as i32);
+
+        for h_idx in 0..n_hypercubes {
+            let n_samples_h = n_samples_per_hypercube[h_idx] as f64;
+            if n_samples_h > 0.0 {
+                let avg_g_h = sum_f_host[h_idx] as f64 / n_samples_h;
+                total_value += hypercube_volume * avg_g_h;
+            }
+            if n_samples_h > 1.0 {
+                let avg_g_h = sum_f_host[h_idx] as f64 / n_samples_h;
+                let avg_g2_h = sum_f2_host[h_idx] as f64 / n_samples_h;
+                let var_g_h =
+                    (avg_g2_h - avg_g_h.powi(2)).max(0.0) * (n_samples_h / (n_samples_h - 1.0));
+                total_variance += hypercube_volume.powi(2) * var_g_h / n_samples_h;
+                self.hypercubes[h_idx].variance = var_g_h.sqrt();
+            } else {
+                self.hypercubes[h_idx].variance = 0.0;
+            }
+        }
+
+        let f2 = weighted_f.clone() * weighted_f;
+        let d_val = f2 / n_eval_actual as f32;
+
+        for d in 0..self.dim {
+            let bin_indices_d = all_bin_indices
+                .clone()
+                .slice([0..n_eval_actual, d..d + 1])
+                .reshape([n_eval_actual]);
+            let one_hot_matrix: Tensor<GpuBackend, 2> = bin_indices_d.one_hot(n_bins).float();
+            let d_updates_d = d_val
+                .clone()
+                .reshape([1, n_eval_actual])
+                .matmul(one_hot_matrix);
+            let d_updates_data = d_updates_d.to_data();
+            let d_updates_host: &[f32] = bytemuck::try_cast_slice(&d_updates_data.bytes).unwrap();
+            self.grids[d]
+                .d
+                .copy_from_slice(&d_updates_host.iter().map(|&x| x as f64).collect::<Vec<_>>());
+        }
+
+        let error = total_variance.sqrt();
+        Ok((total_value, error))
     }
 
     fn run_iteration<F: Integrand + Sync>(&mut self, integrand: &F) -> (f64, f64) {
@@ -524,8 +751,13 @@ impl VegasPlus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::integrand::{Integrand, SimdIntegrand};
     use wide::f64x4;
+
+    #[cfg(feature = "gpu")]
+    use crate::integrand::BurnIntegrand;
+    use crate::integrand::{Integrand, SimdIntegrand};
+    #[cfg(feature = "gpu")]
+    use burn::prelude::*;
 
     // Integral of the form exp(-x^2 - y^2) in [-1, 1]^2.
     struct GaussianIntegrand;
@@ -537,6 +769,25 @@ mod tests {
 
         fn eval(&self, x: &[f64]) -> f64 {
             (-(x[0].powi(2)) - x[1].powi(2)).exp()
+        }
+    }
+
+    #[cfg(feature = "gpu")]
+    struct GaussianBurnIntegrand;
+
+    #[cfg(feature = "gpu")]
+    impl<B: Backend> BurnIntegrand<B> for GaussianBurnIntegrand {
+        fn dim(&self) -> usize {
+            2
+        }
+
+        fn eval_burn(&self, points: Tensor<B, 2>) -> Tensor<B, 1> {
+            let x = points.clone().slice([0..points.dims()[0], 0..1]);
+            let y = points.clone().slice([0..points.dims()[0], 1..2]);
+            let x2 = x.clone() * x;
+            let y2 = y.clone() * y;
+            let neg_x2_y2 = (x2 + y2).mul_scalar(-1.0);
+            neg_x2_y2.exp().squeeze()
         }
     }
 
@@ -601,6 +852,26 @@ mod tests {
         assert!(
             (result.value - ANALYTICAL_RESULT).abs() < 2.5 * result.error,
             "Analytical={} vs. MCHEP (SIMD)={}+/-{}",
+            ANALYTICAL_RESULT,
+            result.value,
+            result.error
+        );
+        assert!(result.chi2_dof < 1.5, "chi2_dof: {}", result.chi2_dof);
+    }
+
+    #[test]
+    #[cfg(feature = "gpu")]
+    #[ignore]
+    fn test_integrate_gaussian_plus_gpu() {
+        let integrand = GaussianBurnIntegrand;
+        let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
+        let mut vegas_plus = VegasPlus::new(10, 100_000, 50, 0.5, 4, 0.75, boundaries);
+        vegas_plus.set_seed(1234);
+        let result = vegas_plus.integrate_gpu(&integrand, None);
+
+        assert!(
+            (result.value - ANALYTICAL_RESULT).abs() < 2.5 * result.error,
+            "Analytical={} vs. MCHEP (GPU)={}+/-{}",
             ANALYTICAL_RESULT,
             result.value,
             result.error

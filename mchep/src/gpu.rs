@@ -12,7 +12,7 @@ pub type GpuBackend = burn::backend::Wgpu;
 
 /// The Burn-based GPU integrator.
 pub struct BurnIntegrator {
-    device: <GpuBackend as Backend>::Device,
+    pub device: <GpuBackend as Backend>::Device,
 }
 
 impl BurnIntegrator {
