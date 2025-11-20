@@ -381,14 +381,15 @@ impl Vegas {
 
 #[cfg(feature = "gpu")]
 impl Vegas {
-    pub fn integrate_gpu<F: crate::integrand::GpuIntegrand>(
+    /// Integrates the given function using the VEGAS algorithm on the GPU.
+    pub fn integrate_gpu<F: crate::integrand::BurnIntegrand<crate::gpu::GpuBackend> + Sync>(
         &mut self,
         integrand: &F,
         target_accuracy: Option<f64>,
     ) -> VegasResult {
         assert_eq!(integrand.dim(), self.dim);
 
-        let gpu_integrator = match crate::gpu::GpuIntegrator::new(integrand) {
+        let gpu_integrator = match crate::gpu::BurnIntegrator::new() {
             Ok(integrator) => integrator,
             Err(e) => {
                 panic!("Failed to initialize GPU integrator: {}", e);
@@ -400,7 +401,7 @@ impl Vegas {
 
         for iter in 0..self.n_iter {
             let (iter_val, iter_err) = match gpu_integrator.run_iteration(
-                &mut self.rng,
+                integrand,
                 &mut self.grids,
                 &self.boundaries,
                 self.n_eval,
@@ -443,8 +444,13 @@ impl Vegas {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::integrand::{Integrand, SimdIntegrand};
     use wide::f64x4;
+
+    #[cfg(feature = "gpu")]
+    use crate::integrand::BurnIntegrand;
+    use crate::integrand::{Integrand, SimdIntegrand};
+    #[cfg(feature = "gpu")]
+    use burn::prelude::*;
 
     // Integral of the form exp(-x^2 - y^2) in [-1, 1]^2.
     struct GaussianIntegrand;
@@ -470,6 +476,25 @@ mod tests {
             let x = points[0];
             let y = points[1];
             (-(x * x) - (y * y)).exp()
+        }
+    }
+
+    #[cfg(feature = "gpu")]
+    struct GaussianBurnIntegrand;
+
+    #[cfg(feature = "gpu")]
+    impl<B: Backend> BurnIntegrand<B> for GaussianBurnIntegrand {
+        fn dim(&self) -> usize {
+            2
+        }
+
+        fn eval_burn(&self, points: Tensor<B, 2>) -> Tensor<B, 1> {
+            let x = points.clone().slice([0..points.dims()[0], 0..1]);
+            let y = points.clone().slice([0..points.dims()[0], 1..2]);
+            let x2 = x.clone() * x;
+            let y2 = y.clone() * y;
+            let neg_x2_y2 = (x2 + y2).mul_scalar(-1.0);
+            neg_x2_y2.exp().squeeze()
         }
     }
 
@@ -504,6 +529,25 @@ mod tests {
         assert!(
             (result.value - ANALYTICAL_RESULT).abs() < 2.5 * result.error,
             "Analytical={} vs. MCHEP (SIMD)={}+/-{}",
+            ANALYTICAL_RESULT,
+            result.value,
+            result.error
+        );
+        assert!(result.chi2_dof < 1.5, "chi2_dof: {}", result.chi2_dof);
+    }
+
+    #[test]
+    #[cfg(feature = "gpu")]
+    fn test_integrate_gaussian_gpu() {
+        let integrand = GaussianBurnIntegrand;
+        let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
+        let mut vegas = Vegas::new(10, 100_000, 50, 0.5, boundaries);
+        vegas.set_seed(1234);
+        let result = vegas.integrate_gpu(&integrand, None);
+
+        assert!(
+            (result.value - ANALYTICAL_RESULT).abs() < 2.5 * result.error,
+            "Analytical={} vs. MCHEP (GPU)={}+/-{}",
             ANALYTICAL_RESULT,
             result.value,
             result.error

@@ -1,179 +1,114 @@
-//! GPU-specific implementation for integration.
+//! GPU-specific implementation for integration using Burn.
 
 use crate::grid::Grid;
-use crate::integrand::GpuIntegrand;
-use cust::prelude::*;
-use rand::Rng;
-use rand_pcg::Pcg64;
+use crate::integrand::BurnIntegrand;
+use burn::prelude::*;
+use burn::tensor::Distribution;
+use bytemuck;
 use std::error::Error;
 
-pub struct GpuIntegrator {
-    _context: Context,
-    stream: Stream,
-    module: Module,
+// Use WGPU backend for cross-platform GPU support.
+pub type GpuBackend = burn::backend::Wgpu;
+
+/// The Burn-based GPU integrator.
+pub struct BurnIntegrator {
+    device: <GpuBackend as Backend>::Device,
 }
 
-impl GpuIntegrator {
-    pub fn new<F: GpuIntegrand>(integrand: &F) -> Result<Self, Box<dyn Error>> {
-        cust::init(CudaFlags::empty())?;
-
-        let device = Device::get_device(0)?;
-        let _context = Context::new(device)?;
-
-        let stream = Stream::new(StreamFlags::DEFAULT, None)?;
-        let ptx_path = integrand.ptx_path();
-        let module = Module::from_file(ptx_path)?;
-
-        Ok(GpuIntegrator {
-            _context,
-            stream,
-            module,
-        })
+impl BurnIntegrator {
+    /// Creates a new Burn integrator.
+    pub fn new() -> Result<Self, Box<dyn Error>> {
+        let device = <GpuBackend as Backend>::Device::default();
+        Ok(BurnIntegrator { device })
     }
 
-    pub fn run_iteration(
+    /// Runs a single iteration of the VEGAS algorithm on the GPU.
+    pub fn run_iteration<F: BurnIntegrand<GpuBackend> + Sync>(
         &self,
-        rng: &mut Pcg64,
+        integrand: &F,
         grids: &mut [Grid],
         boundaries: &[(f64, f64)],
         n_eval: usize,
         dim: usize,
     ) -> Result<(f64, f64), Box<dyn Error>> {
-        // TODO: For the time-being, for the sake of simplicity, we generate random numbers
-        // on CPU and copy them over. A more advanced implementation would do this on the GPU.
-        let random_ys: Vec<f64> = (0..(n_eval * dim)).map(|_| rng.gen()).collect();
+        let ys: Tensor<GpuBackend, 2> =
+            Tensor::random([n_eval, dim], Distribution::Uniform(0.0, 1.0), &self.device);
 
         let n_bins = grids[0].n_bins();
-        let grid_bins: Vec<f64> = grids.iter().flat_map(|g| g.bins.clone()).collect();
-        let boundaries_flat: Vec<f64> = boundaries
+        let mut jacobian: Tensor<GpuBackend, 1> = Tensor::ones([n_eval], &self.device);
+        let mut point: Tensor<GpuBackend, 2> = Tensor::zeros([n_eval, dim], &self.device);
+        let mut all_bin_indices: Tensor<GpuBackend, 2, Int> =
+            Tensor::zeros([n_eval, dim], &self.device);
+
+        let boundaries_f32: Vec<(f32, f32)> = boundaries
             .iter()
-            .flat_map(|(min, max)| vec![*min, *max])
+            .map(|&(min, max)| (min as f32, max as f32))
             .collect();
 
-        let mut ys_gpu = random_ys.as_slice().as_dbuf()?;
-        let mut grid_bins_gpu = grid_bins.as_slice().as_dbuf()?;
-        let mut boundaries_gpu = boundaries_flat.as_slice().as_dbuf()?;
+        for d in 0..dim {
+            let y_d = ys.clone().slice([0..n_eval, d..d + 1]).reshape([n_eval]);
 
-        let mut results_gpu = unsafe { DeviceBuffer::<f64>::uninitialized(n_eval)? };
-        let mut d_updates_gpu = unsafe { DeviceBuffer::<f64>::uninitialized(dim * n_bins)? };
-        d_updates_gpu.copy_from(&vec![0.0; dim * n_bins])?;
+            let bins_f32: Vec<f32> = grids[d].bins().iter().map(|&x| x as f32).collect();
+            let grid_bins_d = Tensor::<GpuBackend, 1>::from_floats(&*bins_f32, &self.device);
 
-        let func = self.module.get_function("integrand_ker")?;
-        let block_size = 256;
-        let grid_size = (n_eval as u32 + block_size - 1) / block_size;
+            let n_bins_d = n_bins as f32;
+            let y_scaled = y_d * n_bins_d;
+            let bin_indices_d = y_scaled.clone().floor().int();
+            let y_frac = y_scaled - bin_indices_d.clone().float();
 
-        unsafe {
-            launch!(
-                func<<<grid_size, block_size, 0, self.stream>>>(
-                    ys_gpu.as_device_ptr(),
-                    results_gpu.as_device_ptr(),
-                    grid_bins_gpu.as_device_ptr(),
-                    boundaries_gpu.as_device_ptr(),
-                    d_updates_gpu.as_device_ptr(),
-                    n_eval as u32,
-                    dim as u32,
-                    n_bins as u32
-                )
-            )?;
+            let bin_indices_clamped = bin_indices_d.clone().clamp(0, (n_bins - 1) as i32);
+
+            let x_low = grid_bins_d.clone().gather(0, bin_indices_clamped.clone());
+            let x_high = grid_bins_d.gather(0, bin_indices_clamped.clone() + 1);
+
+            let width = x_high - x_low.clone();
+            let x_unit_d = x_low + y_frac * width.clone();
+            let jac_vegas_d = width * n_bins_d;
+
+            jacobian = jacobian.clone() * jac_vegas_d;
+
+            let (min_b, max_b) = boundaries_f32[d];
+            let jac_boundary = max_b - min_b;
+            let point_d = x_unit_d.mul_scalar(jac_boundary).add_scalar(min_b);
+            jacobian = jacobian.clone() * jac_boundary;
+
+            point = point.slice_assign([0..n_eval, d..d + 1], point_d.reshape([n_eval, 1]));
+            all_bin_indices = all_bin_indices.slice_assign(
+                [0..n_eval, d..d + 1],
+                bin_indices_clamped.reshape([n_eval, 1]),
+            );
         }
 
-        self.stream.synchronize()?;
+        let f_val = integrand.eval_burn(point);
+        let weighted_f = f_val * jacobian;
 
-        let mut results_host = vec![0.0; n_eval];
-        results_gpu.copy_to(&mut results_host)?;
+        let sum_f: f32 = weighted_f.clone().sum().into_scalar();
+        let sum_f2: f32 = (weighted_f.clone() * weighted_f.clone())
+            .sum()
+            .into_scalar();
 
-        let mut d_updates_host = vec![0.0; dim * n_bins];
-        d_updates_gpu.copy_to(&mut d_updates_host)?;
-
-        let sum_f: f64 = results_host.iter().sum();
-        let sum_f2: f64 = results_host.iter().map(|f| f * f).sum();
-
-        let avg_f = sum_f / n_eval as f64;
-        let avg_f2 = sum_f2 / n_eval as f64;
+        let avg_f = sum_f as f64 / n_eval as f64;
+        let avg_f2 = sum_f2 as f64 / n_eval as f64;
         let variance = (avg_f2 - avg_f * avg_f) / (n_eval - 1).max(1) as f64;
         let error = if variance > 0.0 { variance.sqrt() } else { 0.0 };
 
+        let f2 = weighted_f.clone() * weighted_f;
+        let d_val = f2 / n_eval as f32;
+
         for d in 0..dim {
-            let start = d * n_bins;
-            let end = (d + 1) * n_bins;
-            grids[d].d.copy_from_slice(&d_updates_host[start..end]);
+            let bin_indices_d = all_bin_indices
+                .clone()
+                .slice([0..n_eval, d..d + 1])
+                .reshape([n_eval]);
+            let one_hot_matrix: Tensor<GpuBackend, 2> = bin_indices_d.one_hot(n_bins).float();
+            let d_updates_d = d_val.clone().reshape([1, n_eval]).matmul(one_hot_matrix);
+            let d_updates_data = d_updates_d.to_data();
+            let d_updates_host: &[f32] = bytemuck::try_cast_slice(&d_updates_data.bytes).unwrap();
+            grids[d]
+                .d
+                .copy_from_slice(&d_updates_host.iter().map(|&x| x as f64).collect::<Vec<_>>());
         }
 
         Ok((avg_f, error))
     }
 }
-
-/// Example CUDA kernel. This would be in a .cu file and compiled to PTX.
-pub const EXAMPLE_KERNEL: &str = r#"
-extern "C" __device__ void map(
-    const double y,
-    const double* grid_bins,
-    const int n_bins,
-    int* bin_idx,
-    double* x_unit,
-    double* jac_vegas
-) {
-    double y_scaled = y * n_bins;
-    *bin_idx = min(n_bins - 1, (int)floor(y_scaled));
-    double y_frac = y_scaled - (*bin_idx);
-
-    double x_low = grid_bins[*bin_idx];
-    double x_high = grid_bins[*bin_idx + 1];
-    double width = x_high - x_low;
-
-    *x_unit = x_low + y_frac * width;
-    *jac_vegas = width * n_bins;
-}
-
-// This is the user-provided part of the kernel
-extern "C" __device__ double user_integrand(const double* x, int dim);
-
-extern "C" __global__ void integrand_ker(
-    const double* ys,
-    double* results,
-    const double* all_grid_bins,
-    const double* boundaries,
-    double* d_updates,
-    unsigned int n_eval,
-    unsigned int dim,
-    unsigned int n_bins
-) {
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= n_eval) return;
-
-    double point[32]; // Max dimensions, should be passed or a template
-    int bin_indices[32];
-
-    double jacobian = 1.0;
-
-    for (unsigned int d = 0; d < dim; ++d) {
-        double y = ys[idx * dim + d];
-        const double* grid_bins_d = &all_grid_bins[d * (n_bins + 1)];
-
-        int bin_idx;
-        double x_unit;
-        double jac_vegas;
-        map(y, grid_bins_d, n_bins, &bin_idx, &x_unit, &jac_vegas);
-
-        jacobian *= jac_vegas;
-        bin_indices[d] = bin_idx;
-
-        double min_b = boundaries[d * 2];
-        double max_b = boundaries[d * 2 + 1];
-        double jac_boundary = max_b - min_b;
-        point[d] = min_b + x_unit * jac_boundary;
-        jacobian *= jac_boundary;
-    }
-
-    double f_val = user_integrand(point, dim);
-    double weighted_f = f_val * jacobian;
-    results[idx] = weighted_f;
-
-    double f2 = weighted_f * weighted_f;
-    double d_val = f2 / n_eval;
-
-    for (unsigned int d = 0; d < dim; ++d) {
-        atomicAdd(&d_updates[d * n_bins + bin_indices[d]], d_val);
-    }
-}
-"#;

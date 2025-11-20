@@ -156,4 +156,8 @@ impl Grid {
     pub fn n_bins(&self) -> usize {
         self.n_bins
     }
+
+    pub fn bins(&self) -> &[f64] {
+        &self.bins
+    }
 }
