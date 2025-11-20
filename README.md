@@ -11,8 +11,14 @@
 Installation
 ------------
 
-To install the C/C++ APIs, simply run the following command:
+To install the C/C++ APIs, you first need to install `cargo` and `cargo-c`. Then, in order
+to also properly install the C++ header, you need to define the environment vaiable:
+```bash
+export CARGO_C_MCHEP_INSTALL_PREFIX=${prefix}
+```
+where `${prefix}` is the path to where the library will be installed. Then run the following
+command:
 
 ```bash
-cargo cinstall --release --prefix=/path/to/installation --manifest-path mchep_capi/Cargo.toml
+cargo cinstall --release --prefix=${prefix} --manifest-path mchep_capi/Cargo.toml
 ```
