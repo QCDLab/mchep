@@ -5,8 +5,7 @@
 #[cfg(feature = "mpi")]
 mod mpi_tests {
     use mchep::integrand::Integrand;
-    use mchep::vegas_plus::VegasPlus;
-    use mpi::topology::SystemCommunicator;
+    use mchep::vegasplus::VegasPlus;
     use mpi::traits::*;
 
     struct GaussianIntegrand;
@@ -36,8 +35,9 @@ mod mpi_tests {
         let rank = world.rank();
 
         let integrand = GaussianIntegrand;
-        let mut vegas_plus = VegasPlus::new(2, 10, 20_000, 50, 0.5, 4, 0.75);
-        let result = vegas_plus.integrate_mpi(&integrand, &world);
+        let boundaries = &[(0.0, 1.0), (0.0, 1.0)];
+        let mut vegas_plus = VegasPlus::new(10, 20_000, 50, 0.5, 4, 0.75, boundaries);
+        let result = vegas_plus.integrate_mpi(&integrand, &world, None);
 
         if rank == 0 {
             assert!((result.value - ANALYTICAL_RESULT).abs() < 5.0 * result.error);

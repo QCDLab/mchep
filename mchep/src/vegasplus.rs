@@ -24,12 +24,12 @@ use std::error::Error;
 
 /// Stores the state of a single hypercube for stratified sampling.
 #[derive(Debug, Clone)]
-struct Hypercube {
+pub(crate) struct Hypercube {
     /// The number of samples to be evaluated in this hypercube.
     n_samples: usize,
     /// The estimated variance of the integrand within this hypercube
     /// from the last iteration.
-    variance: f64,
+    pub(crate) variance: f64,
 }
 
 impl Default for Hypercube {
@@ -43,15 +43,15 @@ impl Default for Hypercube {
 
 /// The VEGAS+ Monte Carlo integrator.
 pub struct VegasPlus {
-    dim: usize,
-    n_iter: usize,
-    n_eval: usize,
+    pub(crate) dim: usize,
+    pub(crate) n_iter: usize,
+    pub(crate) n_eval: usize,
     rng: Pcg64,
-    grids: Vec<Grid>,
+    pub(crate) grids: Vec<Grid>,
     boundaries: Vec<(f64, f64)>,
     beta: f64,
     n_strat: usize,
-    hypercubes: Vec<Hypercube>,
+    pub(crate) hypercubes: Vec<Hypercube>,
 }
 
 // Struct to hold the results of processing a single hypercube
@@ -406,7 +406,7 @@ impl VegasPlus {
         Ok((total_value, error))
     }
 
-    fn run_iteration<F: Integrand + Sync>(&mut self, integrand: &F) -> (f64, f64) {
+    pub(crate) fn run_iteration<F: Integrand + Sync>(&mut self, integrand: &F) -> (f64, f64) {
         for grid in &mut self.grids {
             grid.reset_importance_data();
         }
@@ -666,7 +666,7 @@ impl VegasPlus {
         coords
     }
 
-    fn reallocate_samples(&mut self) {
+    pub(crate) fn reallocate_samples(&mut self) {
         let total_variance_damped: f64 = self
             .hypercubes
             .iter()
@@ -706,7 +706,7 @@ impl VegasPlus {
         }
     }
 
-    fn combine_results(&self, values: &[f64], errors: &[f64]) -> VegasResult {
+    pub(crate) fn combine_results(&self, values: &[f64], errors: &[f64]) -> VegasResult {
         let mut weighted_sum = 0.0;
         let mut total_weight = 0.0;
 
