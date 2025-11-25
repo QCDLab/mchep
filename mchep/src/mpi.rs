@@ -1,9 +1,9 @@
 //! MPI-specific implementation for distributed integration.
 use crate::integrand::Integrand;
 use crate::vegas::VegasResult;
-use crate::vegas_plus::VegasPlus;
+use crate::vegasplus::VegasPlus;
 use mpi::collective::SystemOperation;
-use mpi::topology::SystemCommunicator;
+use mpi::topology::Communicator;
 use mpi::traits::*;
 
 impl VegasPlus {
@@ -17,10 +17,10 @@ impl VegasPlus {
     ///
     /// * `integrand`: The function to integrate. Must be `Sync`.
     /// * `world`: The MPI communicator.
-    pub fn integrate_mpi<F: Integrand + Sync>(
+    pub fn integrate_mpi<F: Integrand + Sync, C: Communicator>(
         &mut self,
         integrand: &F,
-        world: &SystemCommunicator,
+        world: &C,
         target_accuracy: Option<f64>,
     ) -> VegasResult {
         assert_eq!(integrand.dim(), self.dim);
@@ -38,7 +38,7 @@ impl VegasPlus {
         for iter in 0..self.n_iter {
             let (iter_val, iter_err) = self.run_iteration(integrand);
 
-            let mut local_data = self.serialize_adaptation_data();
+            let local_data = self.serialize_adaptation_data();
             let mut global_data = vec![0.0; local_data.len()];
 
             world.all_reduce_into(
@@ -55,7 +55,7 @@ impl VegasPlus {
                 let mut global_iter_val = 0.0;
                 world.process_at_rank(0).reduce_into_root(&iter_val, &mut global_iter_val, SystemOperation::sum());
 
-                let mut global_iter_err_sq = 0.0;
+                let mut global_iter_err_sq: f64 = 0.0;
                 let iter_err_sq = iter_err.powi(2);
                 world.process_at_rank(0).reduce_into_root(
                     &iter_err_sq,
@@ -64,8 +64,8 @@ impl VegasPlus {
                 );
 
                 if iter > 0 {
-                    iter_results.push(global_iter_val);
-                    iter_errors.push(global_iter_err_sq.sqrt());
+                    iter_results.push(global_iter_val / size as f64);
+                    iter_errors.push(global_iter_err_sq.sqrt() / size as f64);
                 }
 
                 if let Some(acc_req) = target_accuracy {
