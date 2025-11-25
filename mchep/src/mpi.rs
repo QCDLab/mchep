@@ -38,7 +38,7 @@ impl VegasPlus {
         for iter in 0..self.n_iter {
             let (iter_val, iter_err) = self.run_iteration(integrand);
 
-            let mut local_data = self.serialize_adaptation_data();
+            let local_data = self.serialize_adaptation_data();
             let mut global_data = vec![0.0; local_data.len()];
 
             world.all_reduce_into(

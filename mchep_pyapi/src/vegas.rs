@@ -355,7 +355,7 @@ impl PyVegasPlus {
         integrand: &PyIntegrand,
         target_accuracy: Option<f64>,
     ) -> PyVegasResult {
-        use mpi::traits::*;
+        
 
         // NOTE: MPI initialization should typically happen once at program start
         // This may cause issues if called multiple times.
@@ -376,7 +376,7 @@ impl PyVegasPlus {
         callable: PyObject,
         target_accuracy: Option<f64>,
     ) -> PyResult<PyVegasResult> {
-        use mpi::traits::*;
+        
 
         if !callable.bind(py).is_callable() {
             return Err(PyValueError::new_err("integrand must be callable"));

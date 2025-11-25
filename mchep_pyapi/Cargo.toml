@@ -18,5 +18,9 @@ doc = false
 
 [dependencies]
 mchep = { path = "../mchep" }
+mpi = { workspace = true, optional = true }
 pyo3 = { workspace = true, features = ["extension-module"] }
 wide = { workspace = true }
+
+[features]
+mpi = ["mchep/mpi", "dep:mpi"]

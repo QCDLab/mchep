@@ -3829,6 +3829,7 @@ name = "mchep_pyapi"
 version = "0.1.0"
 dependencies = [
  "mchep",
+ "mpi",
  "pyo3",
  "wide",
 ]
