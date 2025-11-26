@@ -112,6 +112,34 @@ impl VegasPlus {
     }
 
     /// Integrates the given function using the VEGAS+ algorithm.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mchep::vegasplus::VegasPlus;
+    /// use mchep::integrand::Integrand;
+    ///
+    /// // Define the function to be integrated
+    /// struct MyIntegrand;
+    ///
+    /// impl Integrand for MyIntegrand {
+    ///     fn dim(&self) -> usize {
+    ///         2
+    ///     }
+    ///
+    ///     fn eval(&self, x: &[f64]) -> f64 {
+    ///         (-(x[0].powi(2)) - x[1].powi(2)).exp()
+    ///     }
+    /// }
+    ///
+    /// let integrand = MyIntegrand;
+    /// let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
+    /// let mut vegas_plus = VegasPlus::new(10, 20_000, 50, 0.5, 4, 0.75, boundaries);
+    /// vegas_plus.set_seed(1234);
+    /// let result = vegas_plus.integrate(&integrand, None);
+    ///
+    /// assert!((result.value - 2.230985).abs() < 3. * result.error);
+    /// ```
     pub fn integrate<F: Integrand + Sync>(
         &mut self,
         integrand: &F,
@@ -153,6 +181,40 @@ impl VegasPlus {
     }
 
     /// Integrates the given function using the VEGAS+ algorithm with SIMD.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mchep::vegasplus::VegasPlus;
+    /// use mchep::integrand::SimdIntegrand;
+    /// use wide::f64x4;
+    ///
+    /// // Define the SIMD function to be integrated
+    /// struct MySimdIntegrand;
+    ///
+    /// impl SimdIntegrand for MySimdIntegrand {
+    ///     fn dim(&self) -> usize {
+    ///         2
+    ///     }
+    ///
+    ///     fn eval_simd(&self, points: &[f64x4]) -> f64x4 {
+    ///         let x = points[0];
+    ///         let y = points[1];
+    ///         (-(x * x) - (y * y)).exp()
+    ///     }
+    /// }
+    ///
+    /// let integrand = MySimdIntegrand;
+    /// let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
+    /// // Note: these are test parameters. For a real integration,
+    /// // n_iter and n_eval should be much larger.
+    /// let mut vegas_plus = VegasPlus::new(10, 20_000, 50, 0.5, 4, 0.75, boundaries);
+    /// vegas_plus.set_seed(1234);
+    /// let result = vegas_plus.integrate_simd(&integrand, None);
+    ///
+    /// // The analytical result is approx. 2.230985
+    /// assert!((result.value - 2.230985).abs() < 3. * result.error);
+    /// ```
     pub fn integrate_simd<F: SimdIntegrand + Sync>(
         &mut self,
         integrand: &F,
@@ -194,6 +256,44 @@ impl VegasPlus {
     }
 
     #[cfg(feature = "gpu")]
+    /// Integrates the given function using the VEGAS+ algorithm on the GPU.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use mchep::vegasplus::VegasPlus;
+    /// use mchep::integrand::BurnIntegrand;
+    /// use mchep::gpu::GpuBackend;
+    /// use burn::prelude::*;
+    ///
+    /// struct MyBurnIntegrand;
+    ///
+    /// impl<B: Backend> BurnIntegrand<B> for MyBurnIntegrand {
+    ///     fn dim(&self) -> usize {
+    ///         2
+    ///     }
+    ///
+    ///     fn eval_burn(&self, points: Tensor<B, 2>) -> Tensor<B, 1> {
+    ///         let x = points.clone().slice([0..points.dims()[0], 0..1]);
+    ///         let y = points.clone().slice([0..points.dims()[0], 1..2]);
+    ///         let x2 = x.clone() * x;
+    ///         let y2 = y.clone() * y;
+    ///         let neg_x2_y2 = (x2 + y2).mul_scalar(-1.0);
+    ///         neg_x2_y2.exp().squeeze()
+    ///     }
+    /// }
+    ///
+    /// let integrand = MyBurnIntegrand;
+    /// let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
+    /// // Note: these are test parameters. For a real integration,
+    /// // n_iter and n_eval should be much larger.
+    /// let mut vegas_plus = VegasPlus::new(10, 50_000, 50, 0.5, 4, 0.75, boundaries);
+    /// vegas_plus.set_seed(1234);
+    /// let result = vegas_plus.integrate_gpu(&integrand, None);
+    ///
+    /// // The analytical result is approx. 2.230985
+    /// assert!((result.value - 2.230985).abs() < 3. * result.error);
+    /// ```
     pub fn integrate_gpu<F: crate::integrand::BurnIntegrand<crate::gpu::GpuBackend> + Sync>(
         &mut self,
         integrand: &F,

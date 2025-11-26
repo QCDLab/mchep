@@ -17,6 +17,40 @@ impl VegasPlus {
     ///
     /// * `integrand`: The function to integrate. Must be `Sync`.
     /// * `world`: The MPI communicator.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use mchep::vegasplus::VegasPlus;
+    /// use mchep::integrand::Integrand;
+    /// use mpi::traits::*;
+    ///
+    /// struct MyIntegrand;
+    ///
+    /// impl Integrand for MyIntegrand {
+    ///     fn dim(&self) -> usize { 2 }
+    ///     fn eval(&self, x: &[f64]) -> f64 {
+    ///         (-(x[0].powi(2)) - x[1].powi(2)).exp()
+    ///     }
+    /// }
+    ///
+    /// // Initialize MPI
+    /// let universe = mpi::initialize().unwrap();
+    /// let world = universe.world();
+    /// let rank = world.rank();
+    ///
+    /// let integrand = MyIntegrand;
+    /// let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
+    /// let mut vegas_plus = VegasPlus::new(10, 20_000, 50, 0.5, 4, 0.75, boundaries);
+    /// vegas_plus.set_seed(1234);
+    ///
+    /// let result = vegas_plus.integrate_mpi(&integrand, &world, None);
+    ///
+    /// if rank == 0 {
+    ///     println!("Result: {} +/- {}", result.value, result.error);
+    ///     assert!((result.value - 2.230985).abs() < 3. * result.error);
+    /// }
+    /// ```
     pub fn integrate_mpi<F: Integrand + Sync, C: Communicator>(
         &mut self,
         integrand: &F,
