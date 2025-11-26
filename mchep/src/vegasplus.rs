@@ -862,7 +862,7 @@ mod tests {
     fn test_integrate_gaussian_plus_gpu() {
         let integrand = GaussianBurnIntegrand;
         let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
-        let mut vegas_plus = VegasPlus::new(10, 100_000, 50, 0.5, 4, 0.75, boundaries);
+        let mut vegas_plus = VegasPlus::new(10, 500_000, 50, 0.5, 4, 0.75, boundaries);
         vegas_plus.set_seed(1234);
         let result = vegas_plus.integrate_gpu(&integrand, None);
 
