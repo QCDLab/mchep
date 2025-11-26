@@ -180,13 +180,10 @@ impl Vegas {
     ///
     /// let integrand = MySimdIntegrand;
     /// let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
-    /// // Note: these are test parameters. For a real integration,
-    /// // n_iter and n_eval should be much larger.
     /// let mut vegas = Vegas::new(10, 10_000, 50, 0.5, boundaries);
     /// vegas.set_seed(1234);
     /// let result = vegas.integrate_simd(&integrand, None);
     ///
-    /// // The analytical result is approx. 2.230985
     /// assert!((result.value - 2.230985).abs() < 4. * result.error);
     /// ```
     pub fn integrate_simd<F: SimdIntegrand + Sync>(
@@ -476,7 +473,6 @@ impl Vegas {
     /// vegas.set_seed(1234);
     /// let result = vegas.integrate_gpu(&integrand, None);
     ///
-    /// // The analytical result is approx. 2.230985
     /// assert!((result.value - 2.230985).abs() < 4. * result.error);
     /// ```
     pub fn integrate_gpu<F: crate::integrand::BurnIntegrand<crate::gpu::GpuBackend> + Sync>(
