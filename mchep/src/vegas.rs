@@ -82,7 +82,7 @@ impl Vegas {
     }
 
     /// Integrates the given function using the VEGAS algorithm.
-    pub fn integrate<F: Integrand + Sync>(
+    pub fn integrate<F: Integrand + Sync + ?Sized>(
         &mut self,
         integrand: &F,
         target_accuracy: Option<f64>,
@@ -127,7 +127,7 @@ impl Vegas {
     }
 
     /// Integrates the given function using the VEGAS algorithm with SIMD.
-    pub fn integrate_simd<F: SimdIntegrand + Sync>(
+    pub fn integrate_simd<F: SimdIntegrand + Sync + ?Sized>(
         &mut self,
         integrand: &F,
         target_accuracy: Option<f64>,
@@ -171,7 +171,7 @@ impl Vegas {
     }
 
     /// Runs a single iteration of the VEGAS algorithm in parallel.
-    fn run_iteration<F: Integrand + Sync>(&mut self, integrand: &F) -> (f64, f64) {
+    fn run_iteration<F: Integrand + Sync + ?Sized>(&mut self, integrand: &F) -> (f64, f64) {
         for grid in &mut self.grids {
             grid.reset_importance_data();
         }
@@ -261,7 +261,7 @@ impl Vegas {
     }
 
     /// Runs a single iteration of the VEGAS algorithm using SIMD.
-    fn run_iteration_simd<F: SimdIntegrand + Sync>(&mut self, integrand: &F) -> (f64, f64) {
+    fn run_iteration_simd<F: SimdIntegrand + Sync + ?Sized>(&mut self, integrand: &F) -> (f64, f64) {
         for grid in &mut self.grids {
             grid.reset_importance_data();
         }
@@ -382,7 +382,7 @@ impl Vegas {
 #[cfg(feature = "gpu")]
 impl Vegas {
     /// Integrates the given function using the VEGAS algorithm on the GPU.
-    pub fn integrate_gpu<F: crate::integrand::BurnIntegrand<crate::gpu::GpuBackend> + Sync>(
+    pub fn integrate_gpu<F: crate::integrand::BurnIntegrand<crate::gpu::GpuBackend> + Sync + ?Sized>(
         &mut self,
         integrand: &F,
         target_accuracy: Option<f64>,

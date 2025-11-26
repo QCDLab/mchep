@@ -23,7 +23,7 @@ impl BurnIntegrator {
     }
 
     /// Runs a single iteration of the VEGAS algorithm on the GPU.
-    pub fn run_iteration<F: BurnIntegrand<GpuBackend> + Sync>(
+    pub fn run_iteration<F: BurnIntegrand<GpuBackend> + Sync + ?Sized>(
         &self,
         integrand: &F,
         grids: &mut [Grid],

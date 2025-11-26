@@ -112,7 +112,7 @@ impl VegasPlus {
     }
 
     /// Integrates the given function using the VEGAS+ algorithm.
-    pub fn integrate<F: Integrand + Sync>(
+    pub fn integrate<F: Integrand + Sync + ?Sized>(
         &mut self,
         integrand: &F,
         target_accuracy: Option<f64>,
@@ -153,7 +153,7 @@ impl VegasPlus {
     }
 
     /// Integrates the given function using the VEGAS+ algorithm with SIMD.
-    pub fn integrate_simd<F: SimdIntegrand + Sync>(
+    pub fn integrate_simd<F: SimdIntegrand + Sync + ?Sized>(
         &mut self,
         integrand: &F,
         target_accuracy: Option<f64>,
@@ -194,7 +194,7 @@ impl VegasPlus {
     }
 
     #[cfg(feature = "gpu")]
-    pub fn integrate_gpu<F: crate::integrand::BurnIntegrand<crate::gpu::GpuBackend> + Sync>(
+    pub fn integrate_gpu<F: crate::integrand::BurnIntegrand<crate::gpu::GpuBackend> + Sync + ?Sized>(
         &mut self,
         integrand: &F,
         target_accuracy: Option<f64>,
@@ -242,7 +242,7 @@ impl VegasPlus {
     }
 
     #[cfg(feature = "gpu")]
-    fn run_iteration_gpu<F: BurnIntegrand<GpuBackend> + Sync>(
+    fn run_iteration_gpu<F: BurnIntegrand<GpuBackend> + Sync + ?Sized>(
         &mut self,
         gpu_integrator: &crate::gpu::BurnIntegrator,
         integrand: &F,
@@ -406,7 +406,7 @@ impl VegasPlus {
         Ok((total_value, error))
     }
 
-    pub(crate) fn run_iteration<F: Integrand + Sync>(&mut self, integrand: &F) -> (f64, f64) {
+    pub(crate) fn run_iteration<F: Integrand + Sync + ?Sized>(&mut self, integrand: &F) -> (f64, f64) {
         for grid in &mut self.grids {
             grid.reset_importance_data();
         }
@@ -520,7 +520,7 @@ impl VegasPlus {
         (total_value, error)
     }
 
-    fn run_iteration_simd<F: SimdIntegrand + Sync>(&mut self, integrand: &F) -> (f64, f64) {
+    fn run_iteration_simd<F: SimdIntegrand + Sync + ?Sized>(&mut self, integrand: &F) -> (f64, f64) {
         for grid in &mut self.grids {
             grid.reset_importance_data();
         }

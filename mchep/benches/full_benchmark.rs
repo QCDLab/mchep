@@ -236,7 +236,7 @@ fn run_benchmarks(
 
     for benchmark in benchmarks {
         run_one_integrand(
-            benchmark.as_ref(),
+            &*benchmark,
             dim,
             n_eval,
             n_iter,
@@ -275,7 +275,7 @@ fn run_one_integrand(
             println!("Running {} - Vegas Scalar", name);
             let mut vegas = Vegas::new(n_iter, n_eval, 50, 0.5, boundaries);
             let start = Instant::now();
-            let result = vegas.integrate(benchmark.integrand().as_ref(), None);
+            let result = vegas.integrate(&*benchmark.integrand(), None);
             let duration = start.elapsed();
 
             results.push(BenchmarkResult {
@@ -295,7 +295,7 @@ fn run_one_integrand(
             println!("Running {} - Vegas+ Scalar", name);
             let mut vegas_plus = VegasPlus::new(n_iter, n_eval, 50, 0.5, 4, 0.75, boundaries);
             let start = Instant::now();
-            let result = vegas_plus.integrate(benchmark.integrand().as_ref(), None);
+            let result = vegas_plus.integrate(&*benchmark.integrand(), None);
             let duration = start.elapsed();
 
             results.push(BenchmarkResult {
@@ -319,7 +319,7 @@ fn run_one_integrand(
             println!("Running {} - Vegas SIMD", name);
             let mut vegas = Vegas::new(n_iter, n_eval, 50, 0.5, boundaries);
             let start = Instant::now();
-            let result = vegas.integrate_simd(benchmark.simd_integrand().as_ref(), None);
+            let result = vegas.integrate_simd(&*benchmark.simd_integrand(), None);
             let duration = start.elapsed();
 
             results.push(BenchmarkResult {
@@ -339,7 +339,7 @@ fn run_one_integrand(
             println!("Running {} - Vegas+ SIMD", name);
             let mut vegas_plus = VegasPlus::new(n_iter, n_eval, 50, 0.5, 4, 0.75, boundaries);
             let start = Instant::now();
-            let result = vegas_plus.integrate_simd(benchmark.simd_integrand().as_ref(), None);
+            let result = vegas_plus.integrate_simd(&*benchmark.simd_integrand(), None);
             let duration = start.elapsed();
 
             results.push(BenchmarkResult {
@@ -364,7 +364,7 @@ fn run_one_integrand(
             println!("Running {} - Vegas GPU", name);
             let mut vegas = Vegas::new(n_iter, n_eval, 50, 0.5, boundaries);
             let start = Instant::now();
-            let result = vegas.integrate_gpu(benchmark.burn_integrand().as_ref(), None);
+            let result = vegas.integrate_gpu(&*benchmark.burn_integrand(), None);
             let duration = start.elapsed();
 
             results.push(BenchmarkResult {
@@ -384,7 +384,7 @@ fn run_one_integrand(
             println!("Running {} - Vegas+ GPU", name);
             let mut vegas_plus = VegasPlus::new(n_iter, n_eval, 50, 0.5, 4, 0.75, boundaries);
             let start = Instant::now();
-            let result = vegas_plus.integrate_gpu(benchmark.burn_integrand().as_ref(), None);
+            let result = vegas_plus.integrate_gpu(&*benchmark.burn_integrand(), None);
             let duration = start.elapsed();
 
             results.push(BenchmarkResult {
@@ -411,7 +411,7 @@ fn run_one_integrand(
         }
         let mut vegas_plus = VegasPlus::new(n_iter, n_eval, 50, 0.5, 4, 0.75, boundaries);
         let start = Instant::now();
-        let result = vegas_plus.integrate_mpi(benchmark.integrand().as_ref(), &world, None);
+        let result = vegas_plus.integrate_mpi(&*benchmark.integrand(), &world, None);
         let duration = start.elapsed();
 
         if rank == 0 {

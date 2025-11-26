@@ -17,7 +17,7 @@ impl VegasPlus {
     ///
     /// * `integrand`: The function to integrate. Must be `Sync`.
     /// * `world`: The MPI communicator.
-    pub fn integrate_mpi<F: Integrand + Sync, C: Communicator>(
+    pub fn integrate_mpi<F: Integrand + Sync + ?Sized, C: Communicator>(
         &mut self,
         integrand: &F,
         world: &C,
