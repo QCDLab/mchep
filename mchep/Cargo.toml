@@ -46,5 +46,6 @@ harness = false
 
 [[bench]]
 name = "full_benchmark"
+path = "benches/full_benchmark.rs"
 harness = false
 required-features = ["benchmarking"]
