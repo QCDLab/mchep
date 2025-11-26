@@ -757,7 +757,6 @@ mod tests {
     use crate::integrand::BurnIntegrand;
     use crate::integrand::{Integrand, SimdIntegrand};
     #[cfg(feature = "gpu")]
-    use burn::prelude::*;
 
     // Integral of the form exp(-x^2 - y^2) in [-1, 1]^2.
     struct GaussianIntegrand;
