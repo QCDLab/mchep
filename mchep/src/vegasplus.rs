@@ -860,7 +860,6 @@ mod tests {
 
     #[test]
     #[cfg(feature = "gpu")]
-    #[ignore]
     fn test_integrate_gaussian_plus_gpu() {
         let integrand = GaussianBurnIntegrand;
         let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
