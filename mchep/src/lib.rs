@@ -13,3 +13,6 @@ pub mod mpi;
 
 #[cfg(feature = "gpu")]
 pub mod gpu;
+
+#[cfg(feature = "benchmarking")]
+pub mod benchmark;
