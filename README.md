@@ -72,35 +72,35 @@ pkg-config mchep_capi --libs
 <table>
   <tr>
     <th>QCD Complexity</th>
-    <th>Typical Cost</th>
-    <th>MCHEP Scalar</th>
-    <th>MCHEP SIMD+AVX</th>
-    <th>CUBA</th>
+    <th>Typical Cost (FLOPS)</th>
+    <th>MCHEP Scalar (evals/ms)</th>
+    <th>MCHEP SIMD+AVX (evals/ms)</th>
+    <th>CUBA (evals/ms)</th>
     <th>Speedup vs CUBA</th>
   </tr>
   <tr>
     <td>LO (tree-level)</td>
-    <td>~10k FLOPs</td>
-    <td>2,500 evals/ms</td>
-    <td>7,500 evals/ms</td>
-    <td>1,800 evals/ms</td>
-    <td><b>4.2x</b></td>
+    <td>~10k</td>
+    <td>2,500</td>
+    <td>7,500</td>
+    <td>1,800</td>
+    <td>4.2x</td>
   </tr>
   <tr>
     <td>NLO (1-loop)</td>
-    <td>~1M FLOPs</td>
-    <td>48 evals/ms</td>
-    <td>153 evals/ms</td>
-    <td>34 evals/ms</td>
-    <td><b>4.5x</b></td>
+    <td>~1M</td>
+    <td>48</td>
+    <td>153</td>
+    <td>34</td>
+    <td>4.5x</td>
   </tr>
   <tr>
     <td>NNLO (2-loop)</td>
-    <td>~10M FLOPs</td>
-    <td>5 evals/ms</td>
-    <td>18 evals/ms</td>
-    <td>5 evals/ms</td>
-    <td><b>3.9x</b></td>
+    <td>~10M</td>
+    <td>5</td>
+    <td>18</td>
+    <td>5</td>
+    <td>3.9x</td>
   </tr>
 </table>
 </div>
@@ -113,12 +113,17 @@ pkg-config mchep_capi --libs
 
 <h2>Feature Availability</h2>
 
-<h3>Rust API</h3>
-
 <div align="center">
 <table>
   <tr>
     <th>Feature</th>
+    <th colspan="2">Rust API</th>
+    <th colspan="2">C/C++ API</th>
+  </tr>
+  <tr>
+    <th></th>
+    <th>Vegas</th>
+    <th>VegasPlus</th>
     <th>Vegas</th>
     <th>VegasPlus</th>
   </tr>
@@ -126,31 +131,6 @@ pkg-config mchep_capi --libs
     <td>Multi-threaded (Rayon)</td>
     <td align="center">✅</td>
     <td align="center">✅</td>
-  </tr>
-  <tr>
-    <td>SIMD</td>
-    <td align="center">✅</td>
-    <td align="center">✅</td>
-  </tr>
-  <tr>
-    <td>GPU</td>
-    <td align="center">✅</td>
-    <td align="center">✅</td>
-  </tr>
-</table>
-</div>
-
-<h3>C/C++ API</h3>
-
-<div align="center">
-<table>
-  <tr>
-    <th>Feature</th>
-    <th>Vegas</th>
-    <th>VegasPlus</th>
-  </tr>
-  <tr>
-    <td>Multi-threaded (Rayon)</td>
     <td align="center">✅</td>
     <td align="center">✅</td>
   </tr>
@@ -158,9 +138,13 @@ pkg-config mchep_capi --libs
     <td>SIMD</td>
     <td align="center">✅</td>
     <td align="center">✅</td>
+    <td align="center">✅</td>
+    <td align="center">✅</td>
   </tr>
   <tr>
     <td>GPU</td>
+    <td align="center">✅</td>
+    <td align="center">✅</td>
     <td align="center">❌</td>
     <td align="center">❌</td>
   </tr>
