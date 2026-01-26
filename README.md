@@ -22,3 +22,37 @@ command:
 ```bash
 cargo cinstall --release --prefix=${prefix} --manifest-path mchep_capi/Cargo.toml
 ```
+
+Finally, you need to set the environment variables:
+```bash
+export LD_LIBRARY_PATH=${prefix}/lib:$LD_LIBRARY_PATH
+export PKG_CONFIG_PATH=${prefix}/lib/pkgconfig:$PKG_CONFIG_PATH
+```
+and check that `mchep` is properly found in the `PKG_CONFIG_PATH`:
+```bash
+pkg-config mchep_capi --libs
+```
+
+Documentation
+-------------
+
+- [SIMD Integration Tutorial](docs/SIMD_TUTORIAL.md) - How to use SIMD acceleration with the C/C++ API
+- [Benchmark Results](mchep_capi/bench/BENCHMARK_RESULTS.md) - Extensive performance comparison with CUBA library
+
+## MCHEP Feature Availability
+
+### Rust API
+
+| Feature | Vegas | VegasPlus |
+|---------|-------|-----------|
+| Multi-threaded (Rayon) | ✅ | ✅ |
+| SIMD | ✅ | ✅ |
+| GPU | ✅ | ✅ |
+
+### C/C++ API
+
+| Feature | Vegas | VegasPlus |
+|---------|-------|-----------|
+| Multi-threaded (Rayon) | ✅ | ✅ |
+| SIMD | ✅ | ✅ |
+| GPU | ❌ | ❌ |
