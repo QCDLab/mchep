@@ -4,7 +4,7 @@ MCHEP_DEPS = $(shell pkg-config --cflags --libs mchep_capi)
 MATH_LIBS = -lm
 
 MCHEP_TARGETS = benchmark_mchep benchmark_mchep_simd benchmark_mchep_accuracy benchmark_mchep_simd_accuracy benchmark_scaling benchmark_simd_avx benchmark_heavy_qcd
-CUBA_TARGETS = cuba_example cuba_accuracy cuba_scaling
+CUBA_TARGETS = cuba_example cuba_accuracy cuba_scaling benchmark_heavy_cuba
 TARGETS = $(MCHEP_TARGETS) $(CUBA_TARGETS)
 
 all: $(TARGETS)
@@ -53,6 +53,10 @@ cuba_accuracy: cuba_accuracy.cpp
 cuba_scaling: cuba_scaling.cpp
 	@echo "Building cuba scaling benchmark..."
 	$(CXX) $(CUBA_CXXFLAGS) $(CUBA_INCLUDES) $(CUBA_LIBDIRS) $(CUBA_RPATH) $< $(CUBA_LIBS) -o $@
+
+benchmark_heavy_cuba: benchmark_heavy_cuba.cpp
+	@echo "Building heavy CUBA benchmark..."
+	c++ -std=c++14 -O3 -march=native -ffast-math $(CUBA_INCLUDES) $(CUBA_LIBDIRS) $(CUBA_RPATH) $< $(CUBA_LIBS) -o $@
 
 run_cuba: cuba_example
 	@echo "Running cuba_example..."
