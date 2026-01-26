@@ -79,7 +79,7 @@ pkg-config mchep_capi --libs
     <th>Speedup vs CUBA</th>
   </tr>
   <tr>
-    <td>LO (tree-level)</td>
+    <td>LO</td>
     <td>~10k</td>
     <td>2,500</td>
     <td>7,500</td>
@@ -87,7 +87,7 @@ pkg-config mchep_capi --libs
     <td>4.2x</td>
   </tr>
   <tr>
-    <td>NLO (1-loop)</td>
+    <td>NLO</td>
     <td>~1M</td>
     <td>48</td>
     <td>153</td>
@@ -95,7 +95,7 @@ pkg-config mchep_capi --libs
     <td>4.5x</td>
   </tr>
   <tr>
-    <td>NNLO (2-loop)</td>
+    <td>NNLO</td>
     <td>~10M</td>
     <td>5</td>
     <td>18</td>
