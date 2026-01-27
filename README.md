@@ -119,9 +119,12 @@ pkg-config mchep_capi --libs
     <th>Feature</th>
     <th colspan="2">Rust API</th>
     <th colspan="2">C/C++ API</th>
+    <th colspan="2">Python API</th>
   </tr>
   <tr>
     <th></th>
+    <th>Vegas</th>
+    <th>VegasPlus</th>
     <th>Vegas</th>
     <th>VegasPlus</th>
     <th>Vegas</th>
@@ -133,9 +136,13 @@ pkg-config mchep_capi --libs
     <td align="center">✅</td>
     <td align="center">✅</td>
     <td align="center">✅</td>
+    <td align="center">✅</td>
+    <td align="center">✅</td>
   </tr>
   <tr>
     <td>SIMD</td>
+    <td align="center">✅</td>
+    <td align="center">✅</td>
     <td align="center">✅</td>
     <td align="center">✅</td>
     <td align="center">✅</td>
@@ -145,6 +152,8 @@ pkg-config mchep_capi --libs
     <td>GPU</td>
     <td align="center">✅</td>
     <td align="center">✅</td>
+    <td align="center">❌</td>
+    <td align="center">❌</td>
     <td align="center">❌</td>
     <td align="center">❌</td>
   </tr>
