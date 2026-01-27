@@ -1,9 +1,11 @@
 CXX = c++ -std=c++11
+MPICXX = mpicxx -std=c++14
 CXXFLAGS = -O3 -Wall -Wextra
 MCHEP_DEPS = $(shell pkg-config --cflags --libs mchep_capi)
 MATH_LIBS = -lm
 
 MCHEP_TARGETS = benchmark_mchep benchmark_mchep_simd benchmark_mchep_accuracy benchmark_mchep_simd_accuracy benchmark_scaling benchmark_simd_avx benchmark_heavy_qcd
+MPI_TARGETS = benchmark_mpi_simd_avx
 CUBA_TARGETS = cuba_example cuba_accuracy cuba_scaling benchmark_heavy_cuba
 TARGETS = $(MCHEP_TARGETS) $(CUBA_TARGETS)
 
@@ -30,6 +32,16 @@ benchmark_simd_avx: benchmark_simd_avx.cpp
 
 benchmark_heavy_qcd: benchmark_heavy_qcd.cpp
 	c++ -std=c++14 -O3 -march=native -mavx2 -ffast-math $< $(MCHEP_DEPS) $(MATH_LIBS) -o $@
+
+# --- MPI Benchmarks ---
+# Note: MPI targets are not included in 'all' by default.
+# Build with: make mpi
+# Requires mchep_capi to be built with MPI support:
+#   cargo build -p mchep_capi --features mpi --release
+mpi: $(MPI_TARGETS)
+
+benchmark_mpi_simd_avx: benchmark_mpi_simd_avx.cpp
+	$(MPICXX) -O3 -march=native -mavx2 -ffast-math -DMCHEP_MPI $< $(MCHEP_DEPS) $(MATH_LIBS) -o $@
 
 # --- LIBCUBA Benchmark ---
 ifndef CONDA_PREFIX
@@ -62,8 +74,8 @@ run_cuba: cuba_example
 	@echo "Running cuba_example..."
 	@./cuba_example
 
-.PHONY: all clean run_cuba
+.PHONY: all mpi clean run_cuba
 
 clean:
 	@echo "Cleaning benchmarks..."
-	rm -f $(TARGETS) *.o
+	rm -f $(TARGETS) $(MPI_TARGETS) *.o

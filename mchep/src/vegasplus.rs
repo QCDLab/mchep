@@ -614,7 +614,7 @@ impl VegasPlus {
         (total_value, error)
     }
 
-    fn run_iteration_simd<F: SimdIntegrand + Sync>(&mut self, integrand: &F) -> (f64, f64) {
+    pub(crate) fn run_iteration_simd<F: SimdIntegrand + Sync>(&mut self, integrand: &F) -> (f64, f64) {
         for grid in &mut self.grids {
             grid.reset_importance_data();
         }

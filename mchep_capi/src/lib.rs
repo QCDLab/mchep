@@ -8,6 +8,13 @@ use std::os::raw::c_int;
 use std::slice;
 use wide::f64x4;
 
+#[cfg(feature = "mpi")]
+use mpi::ffi::{RSMPI_COMM_SELF, RSMPI_COMM_WORLD};
+#[cfg(feature = "mpi")]
+use mpi::topology::SimpleCommunicator;
+#[cfg(feature = "mpi")]
+use mpi::traits::*;
+
 /// A C-compatible struct for integration boundaries.
 #[repr(C)]
 pub struct CBoundary {
@@ -305,5 +312,176 @@ pub unsafe extern "C" fn mchep_vegas_plus_set_seed(vegas_plus_ptr: *mut VegasPlu
 pub unsafe extern "C" fn mchep_vegas_plus_free(vegas_plus_ptr: *mut VegasPlusC) {
     if !vegas_plus_ptr.is_null() {
         drop(unsafe { Box::from_raw(vegas_plus_ptr as *mut VegasPlus) });
+    }
+}
+
+// ============================================================================
+// MPI Integration Functions
+// ============================================================================
+
+#[cfg(feature = "mpi")]
+/// The raw MPI_Comm type for C interoperability.
+/// This matches the MPI_Comm type from the system MPI library.
+pub type MpiComm = mpi::ffi::MPI_Comm;
+
+#[cfg(feature = "mpi")]
+/// Integrates the given function using the VEGAS+ algorithm with MPI.
+///
+/// This function distributes the integration across MPI processes.
+/// It should be called by all processes in the communicator.
+/// The final result is returned on the root process (rank 0).
+///
+/// # Safety
+///
+/// - `vegas_plus_ptr` must be a valid pointer returned by `mchep_vegas_plus_new`.
+/// - `integrand_func` must be a valid, thread-safe function pointer.
+/// - `comm` must be a valid MPI communicator (e.g., MPI_COMM_WORLD).
+/// - MPI must be initialized before calling this function.
+///
+/// # Example (C++)
+///
+/// ```cpp
+/// #include <mpi.h>
+/// #include <mchep.hpp>
+///
+/// int main(int argc, char** argv) {
+///     MPI_Init(&argc, &argv);
+///
+///     auto* vp = mchep_vegas_plus_new(...);
+///     VegasResult result = mchep_vegas_plus_integrate_mpi(
+///         vp, my_integrand, nullptr, -1.0, MPI_COMM_WORLD);
+///
+///     int rank;
+///     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+///     if (rank == 0) {
+///         printf("Result: %f +/- %f\n", result.value, result.error);
+///     }
+///
+///     mchep_vegas_plus_free(vp);
+///     MPI_Finalize();
+/// }
+/// ```
+#[no_mangle]
+pub unsafe extern "C" fn mchep_vegas_plus_integrate_mpi(
+    vegas_plus_ptr: *mut VegasPlusC,
+    integrand_func: CIntegrand,
+    user_data: *mut c_void,
+    target_accuracy: f64,
+    comm: MpiComm,
+) -> VegasResult {
+    let vegas_plus = unsafe { &mut *(vegas_plus_ptr as *mut VegasPlus) };
+
+    let integrand = CIntegrandWrapper {
+        dim: vegas_plus.dim(),
+        func: integrand_func,
+        user_data,
+    };
+
+    let accuracy_opt = if target_accuracy > 0.0 {
+        Some(target_accuracy)
+    } else {
+        None
+    };
+
+    // Create a SimpleCommunicator from the raw MPI_Comm handle
+    // We need to handle MPI_COMM_WORLD and MPI_COMM_SELF specially
+    unsafe {
+        if comm == RSMPI_COMM_WORLD {
+            let world = SimpleCommunicator::world();
+            vegas_plus.integrate_mpi(&integrand, &world, accuracy_opt)
+        } else if comm == RSMPI_COMM_SELF {
+            let self_comm = SimpleCommunicator::self_comm();
+            vegas_plus.integrate_mpi(&integrand, &self_comm, accuracy_opt)
+        } else {
+            let user_comm = SimpleCommunicator::from_raw(comm);
+            vegas_plus.integrate_mpi(&integrand, &user_comm, accuracy_opt)
+        }
+    }
+}
+
+#[cfg(feature = "mpi")]
+/// Integrates the given SIMD function using the VEGAS+ algorithm with MPI.
+///
+/// This function combines MPI distribution across processes with SIMD
+/// vectorization within each process, providing multiplicative speedup.
+///
+/// It should be called by all processes in the communicator.
+/// The final result is returned on the root process (rank 0).
+///
+/// # Safety
+///
+/// - `vegas_plus_ptr` must be a valid pointer returned by `mchep_vegas_plus_new`.
+/// - `integrand_func` must be a valid, thread-safe SIMD function pointer.
+/// - `comm` must be a valid MPI communicator (e.g., MPI_COMM_WORLD).
+/// - MPI must be initialized before calling this function.
+///
+/// # Example (C++)
+///
+/// ```cpp
+/// #include <mpi.h>
+/// #include <mchep.hpp>
+/// #include <immintrin.h>
+///
+/// // AVX integrand function
+/// void my_simd_integrand(const double* x, int dim, void* data, double* result) {
+///     // x contains dim*4 values in SoA layout
+///     // result should contain 4 output values
+///     __m256d x0 = _mm256_loadu_pd(&x[0]);
+///     // ... compute ...
+///     _mm256_storeu_pd(result, output);
+/// }
+///
+/// int main(int argc, char** argv) {
+///     MPI_Init(&argc, &argv);
+///
+///     auto* vp = mchep_vegas_plus_new(...);
+///     VegasResult result = mchep_vegas_plus_integrate_mpi_simd(
+///         vp, my_simd_integrand, nullptr, -1.0, MPI_COMM_WORLD);
+///
+///     int rank;
+///     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+///     if (rank == 0) {
+///         printf("Result: %f +/- %f\n", result.value, result.error);
+///     }
+///
+///     mchep_vegas_plus_free(vp);
+///     MPI_Finalize();
+/// }
+/// ```
+#[no_mangle]
+pub unsafe extern "C" fn mchep_vegas_plus_integrate_mpi_simd(
+    vegas_plus_ptr: *mut VegasPlusC,
+    integrand_func: CSimdIntegrand,
+    user_data: *mut c_void,
+    target_accuracy: f64,
+    comm: MpiComm,
+) -> VegasResult {
+    let vegas_plus = unsafe { &mut *(vegas_plus_ptr as *mut VegasPlus) };
+
+    let integrand = CSimdIntegrandWrapper {
+        dim: vegas_plus.dim(),
+        func: integrand_func,
+        user_data,
+    };
+
+    let accuracy_opt = if target_accuracy > 0.0 {
+        Some(target_accuracy)
+    } else {
+        None
+    };
+
+    // Create a SimpleCommunicator from the raw MPI_Comm handle
+    // We need to handle MPI_COMM_WORLD and MPI_COMM_SELF specially
+    unsafe {
+        if comm == RSMPI_COMM_WORLD {
+            let world = SimpleCommunicator::world();
+            vegas_plus.integrate_mpi_simd(&integrand, &world, accuracy_opt)
+        } else if comm == RSMPI_COMM_SELF {
+            let self_comm = SimpleCommunicator::self_comm();
+            vegas_plus.integrate_mpi_simd(&integrand, &self_comm, accuracy_opt)
+        } else {
+            let user_comm = SimpleCommunicator::from_raw(comm);
+            vegas_plus.integrate_mpi_simd(&integrand, &user_comm, accuracy_opt)
+        }
     }
 }

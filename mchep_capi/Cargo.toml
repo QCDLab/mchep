@@ -15,12 +15,14 @@ version.workspace = true
 [dependencies]
 mchep = { path = "../mchep" }
 wide = { workspace = true }
+mpi = { workspace = true, optional = true }
 
 [build-dependencies]
 cbindgen = "0.26.0"
 
 [features]
 capi = []
+mpi = ["dep:mpi", "mchep/mpi"]
 
 [lints]
 workspace = true

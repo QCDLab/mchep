@@ -9,6 +9,10 @@
 #include <utility>
 #include <vector>
 
+#ifdef MCHEP_MPI
+#include <mpi.h>
+#endif
+
 extern "C" {
 #include <mchep_capi.h>
 }
@@ -205,6 +209,35 @@ public:
         vegas_plus_ptr_, internal::integrand_simd_wrapper, &integrand,
         target_accuracy);
   }
+
+#ifdef MCHEP_MPI
+  /// @brief Integrates the given function using MPI.
+  /// @param integrand The function to integrate.
+  /// @param comm The MPI communicator (e.g., MPI_COMM_WORLD).
+  /// @param target_accuracy The desired accuracy in percent.
+  /// @return The integration result (valid on rank 0).
+  VegasResult
+  integrate_mpi(std::function<double(const std::vector<double> &)> integrand,
+                MPI_Comm comm, double target_accuracy = -1.0) {
+    return mchep_vegas_plus_integrate_mpi(vegas_plus_ptr_,
+                                          internal::integrand_wrapper,
+                                          &integrand, target_accuracy, comm);
+  }
+
+  /// @brief Integrates the given SIMD function using MPI.
+  /// @param integrand The SIMD function to integrate.
+  /// @param comm The MPI communicator (e.g., MPI_COMM_WORLD).
+  /// @param target_accuracy The desired accuracy in percent.
+  /// @return The integration result (valid on rank 0).
+  VegasResult integrate_mpi_simd(
+      std::function<std::array<double, 4>(const std::vector<double> &)>
+          integrand,
+      MPI_Comm comm, double target_accuracy = -1.0) {
+    return mchep_vegas_plus_integrate_mpi_simd(
+        vegas_plus_ptr_, internal::integrand_simd_wrapper, &integrand,
+        target_accuracy, comm);
+  }
+#endif // MCHEP_MPI
 
 private:
   VegasPlusC *vegas_plus_ptr_;

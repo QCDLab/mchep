@@ -1,5 +1,5 @@
 //! MPI-specific implementation for distributed integration.
-use crate::integrand::Integrand;
+use crate::integrand::{Integrand, SimdIntegrand};
 use crate::vegas::VegasResult;
 use crate::vegasplus::VegasPlus;
 use mpi::collective::SystemOperation;
@@ -71,6 +71,152 @@ impl VegasPlus {
 
         for iter in 0..self.n_iter {
             let (iter_val, iter_err) = self.run_iteration(integrand);
+
+            let local_data = self.serialize_adaptation_data();
+            let mut global_data = vec![0.0; local_data.len()];
+
+            world.all_reduce_into(
+                &local_data[..],
+                &mut global_data[..],
+                SystemOperation::sum(),
+            );
+
+            self.deserialize_and_update_state(&global_data);
+
+            let mut stop_signal = 0i32;
+
+            if rank == 0 {
+                let mut global_iter_val = 0.0;
+                world.process_at_rank(0).reduce_into_root(&iter_val, &mut global_iter_val, SystemOperation::sum());
+
+                let mut global_iter_err_sq: f64 = 0.0;
+                let iter_err_sq = iter_err.powi(2);
+                world.process_at_rank(0).reduce_into_root(
+                    &iter_err_sq,
+                    &mut global_iter_err_sq,
+                    SystemOperation::sum(),
+                );
+
+                if iter > 0 {
+                    iter_results.push(global_iter_val);
+                    iter_errors.push(global_iter_err_sq.sqrt());
+                }
+
+                if let Some(acc_req) = target_accuracy {
+                    if !iter_results.is_empty() {
+                        let current_result = self.combine_results(&iter_results, &iter_errors);
+                        if current_result.value != 0.0 {
+                            let current_acc =
+                                (current_result.error / current_result.value.abs()) * 100.0;
+                            if current_acc < acc_req {
+                                stop_signal = 1;
+                            }
+                        }
+                    }
+                }
+            } else {
+                world.process_at_rank(0).reduce_into(&iter_val, SystemOperation::sum());
+                let iter_err_sq = iter_err.powi(2);
+                world.process_at_rank(0).reduce_into(&iter_err_sq, SystemOperation::sum());
+            }
+
+            world.process_at_rank(0).broadcast_into(&mut stop_signal);
+
+            if stop_signal == 1 {
+                break;
+            }
+
+            self.reallocate_samples();
+            for grid in &mut self.grids {
+                grid.refine();
+            }
+        }
+
+        self.n_eval = n_eval_orig;
+
+        if rank == 0 {
+            self.combine_results(&iter_results, &iter_errors)
+        } else {
+            VegasResult {
+                value: 0.0,
+                error: 0.0,
+                chi2_dof: 0.0,
+            }
+        }
+    }
+
+    /// Integrates the given SIMD function in a distributed manner using MPI.
+    ///
+    /// This method combines MPI distribution across processes with SIMD vectorization
+    /// within each process, providing multiplicative speedup for heavy integrands.
+    ///
+    /// This method should be called by all processes in the MPI communicator.
+    /// The final result is returned on the root process (rank 0), while other
+    /// processes will return a default `VegasResult`.
+    ///
+    /// # Arguments
+    ///
+    /// * `integrand`: The SIMD function to integrate. Must implement `SimdIntegrand + Sync`.
+    /// * `world`: The MPI communicator.
+    /// * `target_accuracy`: Optional target accuracy in percent. If provided, integration
+    ///                      stops early when this accuracy is reached.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use mchep::vegasplus::VegasPlus;
+    /// use mchep::integrand::SimdIntegrand;
+    /// use mpi::traits::*;
+    /// use wide::f64x4;
+    ///
+    /// struct MySimdIntegrand;
+    ///
+    /// impl SimdIntegrand for MySimdIntegrand {
+    ///     fn dim(&self) -> usize { 2 }
+    ///     fn eval_simd(&self, points: &[f64x4]) -> f64x4 {
+    ///         let x = points[0];
+    ///         let y = points[1];
+    ///         (-(x * x) - (y * y)).exp()
+    ///     }
+    /// }
+    ///
+    /// // Initialize MPI
+    /// let universe = mpi::initialize().unwrap();
+    /// let world = universe.world();
+    /// let rank = world.rank();
+    ///
+    /// let integrand = MySimdIntegrand;
+    /// let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
+    /// let mut vegas_plus = VegasPlus::new(10, 20_000, 50, 0.5, 4, 0.75, boundaries);
+    /// vegas_plus.set_seed(1234);
+    ///
+    /// let result = vegas_plus.integrate_mpi_simd(&integrand, &world, None);
+    ///
+    /// if rank == 0 {
+    ///     println!("Result: {} +/- {}", result.value, result.error);
+    ///     assert!((result.value - 2.230985).abs() < 3. * result.error);
+    /// }
+    /// ```
+    pub fn integrate_mpi_simd<F: SimdIntegrand + Sync, C: Communicator>(
+        &mut self,
+        integrand: &F,
+        world: &C,
+        target_accuracy: Option<f64>,
+    ) -> VegasResult {
+        assert_eq!(integrand.dim(), self.dim());
+
+        let rank = world.rank();
+        let size = world.size();
+
+        let n_eval_per_rank = self.n_eval / size as usize;
+        let n_eval_orig = self.n_eval;
+        self.n_eval = n_eval_per_rank;
+
+        let mut iter_results = Vec::new();
+        let mut iter_errors = Vec::new();
+
+        for iter in 0..self.n_iter {
+            let (iter_val, iter_err) = self.run_iteration_simd(integrand);
 
             let local_data = self.serialize_adaptation_data();
             let mut global_data = vec![0.0; local_data.len()];
