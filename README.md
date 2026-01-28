@@ -157,6 +157,24 @@ pkg-config mchep_capi --libs
     <td align="center">❌</td>
     <td align="center">❌</td>
   </tr>
+  <tr>
+    <td>MPI</td>
+    <td align="center">❌</td>
+    <td align="center">✅</td>
+    <td align="center">❌</td>
+    <td align="center">✅</td>
+    <td align="center">❌</td>
+    <td align="center">✅</td>
+  </tr>
+  <tr>
+    <td>MPI+SIMD</td>
+    <td align="center">❌</td>
+    <td align="center">✅</td>
+    <td align="center">❌</td>
+    <td align="center">✅</td>
+    <td align="center">❌</td>
+    <td align="center">❌</td>
+  </tr>
 </table>
 </div>
 
