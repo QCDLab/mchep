@@ -132,48 +132,48 @@ pkg-config mchep_capi --libs
   </tr>
   <tr>
     <td>Multi-threaded (Rayon)</td>
-    <td align="center">✅</td>
-    <td align="center">✅</td>
-    <td align="center">✅</td>
-    <td align="center">✅</td>
-    <td align="center">✅</td>
-    <td align="center">✅</td>
+    <td align="center">✓</td>
+    <td align="center">✓</td>
+    <td align="center">✓</td>
+    <td align="center">✓</td>
+    <td align="center">✓</td>
+    <td align="center">✓</td>
   </tr>
   <tr>
     <td>SIMD</td>
-    <td align="center">✅</td>
-    <td align="center">✅</td>
-    <td align="center">✅</td>
-    <td align="center">✅</td>
-    <td align="center">✅</td>
-    <td align="center">✅</td>
+    <td align="center">✓</td>
+    <td align="center">✓</td>
+    <td align="center">✓</td>
+    <td align="center">✓</td>
+    <td align="center">✓</td>
+    <td align="center">✓</td>
   </tr>
   <tr>
     <td>GPU</td>
-    <td align="center">✅</td>
-    <td align="center">✅</td>
-    <td align="center">❌</td>
-    <td align="center">❌</td>
-    <td align="center">❌</td>
-    <td align="center">❌</td>
+    <td align="center">✓</td>
+    <td align="center">✓</td>
+    <td align="center"></td>
+    <td align="center"></td>
+    <td align="center"></td>
+    <td align="center"></td>
   </tr>
   <tr>
     <td>MPI</td>
-    <td align="center">❌</td>
-    <td align="center">✅</td>
-    <td align="center">❌</td>
-    <td align="center">✅</td>
-    <td align="center">❌</td>
-    <td align="center">✅</td>
+    <td align="center"></td>
+    <td align="center">✓</td>
+    <td align="center"></td>
+    <td align="center">✓</td>
+    <td align="center"></td>
+    <td align="center">✓</td>
   </tr>
   <tr>
     <td>MPI+SIMD</td>
-    <td align="center">❌</td>
-    <td align="center">✅</td>
-    <td align="center">❌</td>
-    <td align="center">✅</td>
-    <td align="center">❌</td>
-    <td align="center">❌</td>
+    <td align="center"></td>
+    <td align="center">✓</td>
+    <td align="center"></td>
+    <td align="center">✓</td>
+    <td align="center"></td>
+    <td align="center"></td>
   </tr>
 </table>
 </div>
