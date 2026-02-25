@@ -57,6 +57,23 @@ The VEGAS algorithm uses adaptive importance sampling to focus evaluations in re
     }
     ```
 
+=== ":simple-python: Python"
+
+    ```python
+    import math
+    from mchep.vegas import Vegas
+
+    def gaussian(x):
+        r2 = x[0]**2 + x[1]**2
+        return math.exp(-r2)
+
+    boundaries = [(0.0, 1.0), (0.0, 1.0)]
+    vegas = Vegas(10, 100000, 50, 1.5, boundaries)
+
+    result = vegas.integrate(gaussian)
+    print(f"Result: {result.value} +/- {result.error}")
+    ```
+
 ## Adaptive Stratified Sampling (VegasPlus)
 
 VEGAS+ adds adaptive stratified sampling, which is particularly effective for integrands with multiple or sharp peaks.
@@ -113,6 +130,24 @@ VEGAS+ adds adaptive stratified sampling, which is particularly effective for in
     }
     ```
 
+=== ":simple-python: Python"
+
+    ```python
+    import math
+    from mchep.vegas import VegasPlus
+
+    def peaked(x):
+        d2 = (x[0]-0.5)**2 + (x[1]-0.5)**2
+        return math.exp(-100.0 * d2)
+
+    boundaries = [(0.0, 1.0), (0.0, 1.0)]
+    # Params: n_iter, n_eval, n_bins, alpha, n_strat, beta, boundaries
+    vp = VegasPlus(10, 100000, 50, 1.5, 4, 0.75, boundaries)
+
+    result = vp.integrate(peaked)
+    print(f"Result: {result.value} +/- {result.error}")
+    ```
+
 ## Integration with Target Accuracy
 
 Instead of running for a fixed number of iterations, you can specify a target accuracy (in percent). The integrator will stop as soon as the estimated relative error falls below this threshold.
@@ -152,6 +187,21 @@ Instead of running for a fixed number of iterations, you can specify a target ac
         std::cout << "Final Accuracy: " << (result.error / result.value) * 100.0 << "%" << std::endl;
         return 0;
     }
+    ```
+
+=== ":simple-python: Python"
+
+    ```python
+    from mchep.vegas import Vegas
+
+    boundaries = [(0.0, 1.0), (0.0, 1.0)]
+    vegas = Vegas(100, 100000, 50, 1.5, boundaries)
+
+    # Stop when relative error is below 0.1%
+    target_accuracy = 0.1
+    result = vegas.integrate(my_integrand, target_accuracy=target_accuracy)
+
+    print(f"Final Accuracy: {(result.error / result.value) * 100.0}%")
     ```
 
 ## SIMD Acceleration
@@ -214,6 +264,27 @@ SIMD (Single Instruction Multiple Data) allows evaluating multiple points simult
     }
     ```
 
+=== ":simple-python: Python"
+
+    ```python
+    import math
+    from mchep.vegas import Vegas
+
+    def gaussian_simd(x_soa):
+        # x_soa is a list of lists: [ [x0,x1,x2,x3], [y0,y1,y2,y3], ... ]
+        results = [0.0] * 4
+        for i in range(4):
+            r2 = x_soa[0][i]**2 + x_soa[1][i]**2
+            results[i] = math.exp(-r2)
+        return results
+
+    boundaries = [(0.0, 1.0), (0.0, 1.0)]
+    vegas = Vegas(10, 100000, 50, 1.5, boundaries)
+
+    result = vegas.integrate_simd(gaussian_simd)
+    print(f"SIMD Result: {result.value}")
+    ```
+
 ## GPU Acceleration
 
 MCHEP supports GPU integration in Rust using the `Burn` deep learning framework. This allows you to leverage the massive parallelism of modern GPUs for evaluation-heavy integrands.
@@ -255,6 +326,10 @@ MCHEP supports GPU integration in Rust using the `Burn` deep learning framework.
     ```
 
 === ":simple-cplusplus: C++"
+
+    > GPU integration is currently only supported via the Rust API.
+
+=== ":simple-python: Python"
 
     > GPU integration is currently only supported via the Rust API.
 
@@ -316,6 +391,27 @@ For very large integration tasks, MCHEP can be distributed across multiple nodes
         MPI_Finalize();
         return 0;
     }
+    ```
+
+=== ":simple-python: Python"
+
+    ```python
+    # Run with: mpirun -n 4 python script.py
+    from mchep.vegas import VegasPlus
+    import math
+
+    def gaussian(x):
+        return math.exp(-(x[0]**2 + x[1]**2))
+
+    boundaries = [(0.0, 1.0), (0.0, 1.0)]
+    vp = VegasPlus(10, 100000, 50, 1.5, 4, 0.75, boundaries)
+
+    # integrate_mpi automatically initializes MPI if needed
+    result = vp.integrate_mpi(gaussian)
+
+    # Result is returned on rank 0
+    if result.value != 0:
+        print(f"MPI Result: {result.value}")
     ```
 
 ## MPI + SIMD Acceleration
@@ -381,3 +477,7 @@ Combining MPI and SIMD provides the ultimate performance, distributing vector-op
         return 0;
     }
     ```
+
+=== ":simple-python: Python"
+
+    > MPI+SIMD integration is currently only supported via the Rust and C++ APIs.

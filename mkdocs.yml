@@ -6,8 +6,8 @@ theme:
   logo: assets/pineapfel.svg
   favicon: assets/pineapfel.svg
   palette:
-    scheme: slate
-    primary: indigo
+    scheme: default
+    primary: white
     accent: indigo
   features:
     - navigation.footer
