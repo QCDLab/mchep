@@ -1,0 +1,74 @@
+site_name: MCHEP
+
+theme:
+  name: material
+  custom_dir: docs/overrides
+  logo: assets/pineapfel.svg
+  favicon: assets/pineapfel.svg
+  palette:
+    scheme: slate
+    primary: indigo
+    accent: indigo
+  features:
+    - navigation.footer
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.tabs.link
+    - content.code.annotation
+    - content.code.copy
+
+extra_css:
+  - custom.css
+  - assets/stylesheets/notebooks.css
+  - https://cdn.jsdelivr.net/gh/devicons/devicon@latest/devicon.min.css
+
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Building: building.md
+      - Tutorials: tutorials.md
+  - SIMD Integration: SIMD_TUTORIAL.md
+
+plugins:
+  - search
+  - mermaid2
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.arithmatex:
+      generic: true
+  - attr_list
+  - admonition
+  - def_list
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+extra:
+  generator: false
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com
+      name: GitHub
+    - icon: fontawesome/solid/comments
+      link: https://zulipchat.com
+      name: Zulip Chat
