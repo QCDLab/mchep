@@ -8,43 +8,6 @@
   the paper <a href="https://arxiv.org/pdf/2009.05112">arXiv:2009.05112</a>.
 </p>
 
-<h2>Installation</h2>
-
-<p align="justify">
-  To install the C/C++ APIs, you first need to install <code>cargo</code> and <code>cargo-c</code>.
-  Then, in order to also properly install the C++ header, you need to define the environment variable:
-</p>
-
-```bash
-export CARGO_C_MCHEP_INSTALL_PREFIX=${prefix}
-```
-
-<p align="justify">
-  where <code>${prefix}</code> is the path to where the library will be installed. Then run the
-  following command:
-</p>
-
-```bash
-cargo cinstall --release --prefix=${prefix} --manifest-path mchep_capi/Cargo.toml
-```
-
-<p align="justify">
-  Finally, you need to set the environment variables:
-</p>
-
-```bash
-export LD_LIBRARY_PATH=${prefix}/lib:$LD_LIBRARY_PATH
-export PKG_CONFIG_PATH=${prefix}/lib/pkgconfig:$PKG_CONFIG_PATH
-```
-
-<p align="justify">
-  and check that <code>mchep</code> is properly found in the <code>PKG_CONFIG_PATH</code>:
-</p>
-
-```bash
-pkg-config mchep_capi --libs
-```
-
 <h2>Performance</h2>
 
 <p align="justify">
@@ -58,14 +21,17 @@ pkg-config mchep_capi --libs
 </p>
 
 <p align="justify">
-  <b>Left plot</b>: Integration throughput (evaluations per millisecond) vs. computational cost
-  per evaluation. MCHEP with SIMD+AVX consistently outperforms both MCHEP scalar and CUBA
-  across all complexity levels.
+  The left plot shows the integration throughput (evaluations per millisecond) vs. computational
+  cost per evaluation. MCHEP with SIMD+AVX consistently outperforms both MCHEP scalar and CUBA
+  across all complexity levels. The right plot shows the speedup factor of MCHEP implementations
+  compared to CUBA Vegas. MCHEP SIMD+AVX achieves <b>4-6x speedup</b> over CUBA for typical HEP
+  workloads.
 </p>
 
 <p align="justify">
-  <b>Right plot</b>: Speedup factor of MCHEP implementations compared to CUBA Vegas.
-  MCHEP SIMD+AVX achieves <b>4-6x speedup</b> over CUBA for typical HEP workloads.
+  Significant improvements can be obtained using SIMD+AVX instructions. See
+  <a href="mchep_capi/bench/BENCHMARK_RESULTS.md">benchmark details</a> for comprehensive
+  comparisons.
 </p>
 
 <div align="center">
@@ -104,12 +70,6 @@ pkg-config mchep_capi --libs
   </tr>
 </table>
 </div>
-
-<p align="justify">
-  Combined with multi-core parallelization (16 cores), MCHEP can reduce month-long calculations
-  to days. See <a href="mchep_capi/bench/BENCHMARK_RESULTS.md">benchmark details</a> for
-  comprehensive comparisons.
-</p>
 
 <h2>Feature Availability</h2>
 
@@ -181,6 +141,8 @@ pkg-config mchep_capi --libs
 <h2>Documentation</h2>
 
 <ul>
-  <li><a href="docs/SIMD_TUTORIAL.md">SIMD Integration Tutorial</a> - How to use SIMD acceleration with the C/C++ API</li>
-  <li><a href="mchep_capi/bench/BENCHMARK_RESULTS.md">Benchmark Results</a> - Extensive performance comparison with CUBA library</li>
+  <li><a href="https://qcdlab.github.io/mchep/">Documentation</a></li>
+  <li><a href="https://qcdlab.github.io/mchep/building/">Installation Instructions</a></li>
+  <li><a href="https://qcdlab.github.io/mchep/tutorials/">Rust/C++/Python Tutorials</a></li>
+  <li><a href="https://qcdlab.github.io/mchep/SIMD_TUTORIAL/">SIMD Integration</a></li>
 </ul>
