@@ -1,10 +1,13 @@
 # Tutorials
 
-This section provides practical examples of how to use MCHEP for multi-dimensional integration. MCHEP supports both Rust and C++ APIs, and offers various acceleration features like multi-threading, SIMD, GPU, and MPI.
+This section provides practical examples of how to use MCHEP for multi-dimensional
+integration. MCHEP supports both Rust, C/C++, and Python APIs, and offers various
+acceleration features like multi-threading, SIMD, GPU, and MPI.
 
-## Basic Integration (Vegas)
+## Basic Integration (VEGAS)
 
-The VEGAS algorithm uses adaptive importance sampling to focus evaluations in regions where the integrand is largest.
+The VEGAS algorithm uses adaptive importance sampling to focus evaluations in
+regions where the integrand is largest.
 
 === ":simple-rust: Rust"
 
@@ -74,7 +77,7 @@ The VEGAS algorithm uses adaptive importance sampling to focus evaluations in re
     print(f"Result: {result.value} +/- {result.error}")
     ```
 
-## Adaptive Stratified Sampling (VegasPlus)
+## Adaptive Stratified Sampling (VEGAS\(+\))
 
 VEGAS+ adds adaptive stratified sampling, which is particularly effective for integrands with multiple or sharp peaks.
 
@@ -335,7 +338,8 @@ MCHEP supports GPU integration in Rust using the `Burn` deep learning framework.
 
 ## Distributed Integration (MPI)
 
-For very large integration tasks, MCHEP can be distributed across multiple nodes using MPI.
+For very large integration tasks, MCHEP can be distributed across multiple nodes using
+Message Passing Interface (MPI).
 
 === ":simple-rust: Rust"
 
@@ -416,7 +420,8 @@ For very large integration tasks, MCHEP can be distributed across multiple nodes
 
 ## MPI + SIMD Acceleration
 
-Combining MPI and SIMD provides the ultimate performance, distributing vector-optimized evaluations across multiple nodes.
+For specific scenarios, combining MPI and SIMD in principle should provide the ultimate
+performance, distributing vector-optimized evaluations across multiple nodes.
 
 === ":simple-rust: Rust"
 

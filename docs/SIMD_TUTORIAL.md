@@ -6,16 +6,8 @@ integration capability to accelerate Monte Carlo integration in C/C++ applicatio
 ## Overview
 
 MCHEP's SIMD integration evaluates **4 integration points simultaneously**, which
-can significantly improve performance by:
-- Better CPU cache utilization
-- Enabling compiler auto-vectorization
-- Reducing function call overhead
-
-## Prerequisites
-
-- MCHEP C API installed (see main README)
-- C++11 or later compiler
-- `pkg-config` configured for `mchep_capi`
+can significantly improve performance by relying on a better CPU cache utilization,
+enabling compiler auto-vectorization, and reducing function call overhead.
 
 ## Quick Start
 
@@ -84,11 +76,11 @@ Point 3: [x3, y3, z3]
 ### SIMD Layout (Structure of Arrays - SoA)
 ```
 [x0, x1, x2, x3, y0, y1, y2, y3, z0, z1, z2, z3]
-|--------------| |--------------| |--------------|
-  dimension 0      dimension 1      dimension 2
+|--------------||--------------||--------------|
+  dimension 0     dimension 1     dimension 2
 ```
 
-The formula to access coordinate `d` of point `i` is:
+The formula to access coordinate `d` of point `i` is then:
 ```cpp
 x[d * simd_width + i]  // where simd_width = 4
 ```
@@ -100,7 +92,7 @@ Input vector x (size = dim * 4 = 12):
 
 Index:  0    1    2    3    4    5    6    7    8    9   10   11
       [x0 , x1 , x2 , x3 , y0 , y1 , y2 , y3 , z0 , z1 , z2 , z3]
-       └─────────────────┘ └─────────────────┘ └─────────────────┘
+      └─────────────────┘ └─────────────────┘ └─────────────────┘
             dim 0              dim 1               dim 2
 
 To get point i's coordinates:
@@ -112,7 +104,7 @@ To get point i's coordinates:
 
 ## Complete Example: Physics Integrand
 
-Here's a more realistic example computing a phase space integral:
+Here's a more realistic example, computing a phase space integral:
 
 ```cpp
 #include <mchep.hpp>
@@ -151,10 +143,10 @@ std::array<double, 4> phase_space_simd(const std::vector<double>& x) {
 int main() {
     // 4D integration boundaries
     std::vector<std::pair<double, double>> boundaries = {
-        {0.0, 10.0},    // p: momentum
-        {0.0, PI},      // theta: polar angle
-        {0.0, 2*PI},    // phi: azimuthal angle
-        {0.0, 10.0}     // E: energy
+        { 0.0, 10.0 },    // p: momentum
+        { 0.0, PI   },    // theta: polar angle
+        { 0.0, 2*PI },    // phi: azimuthal angle
+        { 0.0, 10.0 }     // E: energy
     };
 
     // Create Vegas integrator
@@ -197,11 +189,8 @@ double my_integrand(const std::vector<double>& x) {
 }
 ```
 
-Convert it to SIMD by:
-
-1. Changing the return type to `std::array<double, 4>`
-2. Adding an outer loop over 4 points
-3. Changing the index from `x[d]` to `x[d * 4 + i]`
+Convert it to SIMD by: (a) changing the return type to `std::array<double, 4>`, (b) adding
+an outer loop over 4 points, and (c) changing the index from `x[d]` to `x[d * 4 + i]`.
 
 ```cpp
 // SIMD version
@@ -221,16 +210,16 @@ std::array<double, 4> my_integrand_simd(const std::vector<double>& x) {
 }
 ```
 
-## Using VegasPlus with SIMD
+## Using VEGAS\(+\) with SIMD
 
-VegasPlus adds adaptive stratified sampling on top of Vegas, which can improve
+Vegas\(+\) adds adaptive stratified sampling on top of Vegas, which can improve
 convergence for integrands with localized peaks. It also supports SIMD integration.
 
-### VegasPlus Parameters
+### Vegas\(+\) Parameters
 
-VegasPlus has two additional parameters compared to Vegas:
-- `n_strat`: Number of stratifications per dimension (total hypercubes = n_strat^dim)
-- `beta`: Stratification adaptation parameter (typically 0.5-0.75)
+VegasPlus has two additional parameters compared to Vegas: `n_strat`: which represents
+the number of stratifications per dimension (`total hypercubes = n_strat^dim`) and
+`beta` which represents the stratification adaptation parameter (typically `0.5-0.75`).
 
 ### Example
 
@@ -287,25 +276,25 @@ int main() {
 }
 ```
 
-### When to Use VegasPlus
+### When to Use VEGAS\(+\)
 
-| Integrand Type | Recommended |
-|----------------|-------------|
-| Smooth, no peaks | Vegas |
-| Single localized peak | VegasPlus |
-| Multiple peaks | VegasPlus with higher n_strat |
-| Very high dimensions (>6) | Vegas (stratification overhead grows as n_strat^dim) |
+| Integrand Type            | Recommended                                            |
+|---------------------------|--------------------------------------------------------|
+| Smooth, no peaks          | Vegas                                                  |
+| Single localized peak     | Vegas\(+\)                                             |
+| Multiple peaks            | Vegas\(+\) with higher `n_strat`                       |
+| Very high dimensions (>6) | Vegas (stratification overhead grows as `n_strat^dim`) |
 
 ### Performance Comparison
 
 For a narrow Gaussian in 4D (1M evaluations):
 
-| Method | Time | Result |
-|--------|------|--------|
-| Vegas SIMD | 39 ms | 0.99952 ± 0.00064 |
-| VegasPlus SIMD | 37 ms | 1.00017 ± 0.00062 |
+| Method          | Time | Result             |
+|-----------------|------|--------------------|
+| Vegas SIMD      | 39 ms | 0.99952 ± 0.00064 |
+| Vegas\(+\) SIMD | 37 ms | 1.00017 ± 0.00062 |
 
-VegasPlus achieves slightly better precision for peaked integrands.
+Vegas\(+\) achieves slightly better precision for peaked integrands.
 
 ## Using the C API Directly
 
@@ -411,32 +400,6 @@ std::array<double, 4> gaussian_avx(const std::vector<double>& x) {
 For a complete heavy HEP-style example with 1000 FMA operations achieving **2-2.5x speedup**,
 see [benchmark_simd_avx.cpp](../mchep_capi/bench/benchmark_simd_avx.cpp).
 
-## Comparison: Scalar vs SIMD
-
-| Aspect | Scalar | SIMD |
-|--------|--------|------|
-| Function signature | `double f(vector<double>)` | `array<double,4> f(vector<double>)` |
-| Input size | `dim` | `dim * 4` |
-| Memory layout | AoS | SoA |
-| Points per call | 1 | 4 |
-| Typical speedup | baseline | 1.1x - 2x |
-
-## Troubleshooting
-
-### Wrong Results
-
-If you get incorrect results, check:
-1. **Memory layout**: Make sure you're using `x[d * 4 + i]`, not `x[i * dim + d]`
-2. **Vector size**: Input vector size should be `dim * 4`
-3. **All 4 results**: Make sure you compute all 4 results, not just the first one
-
-### No Performance Improvement
-
-If SIMD isn't faster:
-1. Enable `-O3` optimization
-2. Check if your integrand is already memory-bound (SIMD helps compute-bound code)
-3. Profile to find the actual bottleneck
-
 ## API Reference
 
 ### C++ API
@@ -476,9 +439,3 @@ VegasPlusC* mchep_vegas_plus_new(n_iter, n_eval, n_bins, alpha, n_strat, beta, d
 VegasResult mchep_vegas_plus_integrate_simd(vegasplus, integrand, user_data, target_accuracy);
 void mchep_vegas_plus_free(vegasplus);
 ```
-
-## Further Reading
-
-- [MCHEP Benchmark Results](mchep_capi/bench/BENCHMARK_RESULTS.md) - Extensive Performance comparisons
-- [Vegas Algorithm Paper](https://arxiv.org/pdf/2009.05112) - Theoretical background
-- [Intel Intrinsics Guide](https://www.intel.com/content/www/us/en/docs/intrinsics-guide/) - For advanced SIMD optimization
