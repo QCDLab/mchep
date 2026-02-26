@@ -3,8 +3,8 @@ site_name: MCHEP
 theme:
   name: material
   custom_dir: docs/overrides
-  logo: assets/pineapfel.svg
-  favicon: assets/pineapfel.svg
+  # logo: assets/mchep.svg
+  # favicon: assets/mchep.svg
   palette:
     scheme: default
     primary: white
