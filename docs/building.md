@@ -1,6 +1,7 @@
 # Building and Installation
 
-This page guides you through the process of installing MCHEP and its dependencies for different environments.
+This page guides you through the process of installing MCHEP and its dependencies for
+different environments.
 
 ## Rust API
 
@@ -10,33 +11,27 @@ This page guides you through the process of installing MCHEP and its dependencie
 
     ```toml
     [dependencies]
-    mchep = "0.1.0"
+    mchep = { version = "0.1.0", features = ["simd"] }
     ```
 
 === "Development"
 
-    Clone the repository and use a path dependency or git dependency:
+    Clone the repository and build it by running the following command:
+
+    ```bash
+    cargo build --features "mpi gpu"
+    ```
+
+    You can also include it in your project by passing the path to the cloned repository:
 
     ```toml
     [dependencies]
-    mchep = { git = "https://github.com/tanjona/mchep.git" }
-    # Or for local development
-    # mchep = { path = "../path/to/mchep" }
+    mchep = { path = "./path/to/mchep", features = ["simd"] }
     ```
 
-### Features
-
-MCHEP provides several optional features:
-
-*   `mpi`: Enables distributed integration using MPI.
-*   `gpu`: Enables GPU acceleration using the Burn framework.
-*   `simd`: Enables SIMD-optimized routines (enabled by default).
-
-Example with features:
-
-```bash
-cargo build --features "mpi gpu"
-```
+MCHEP provides several optional features such as `mpi` to enable distributed integration
+using MPI, `gpu` to enable GPU acceleration using the Burn framework, and `simd` to enable
+SIMD-optimized routines (enabled by default).
 
 ---
 
@@ -44,18 +39,30 @@ cargo build --features "mpi gpu"
 
 The C/C++ API can be installed using a pre-built binary script or built from source.
 
-=== "Default (Script)"
+=== "Default"
 
     Use the provided installation script to download and install the latest pre-built binaries:
 
     ```bash
-    # Download and install to /usr/local (or your preferred prefix)
-    ./install-capi.sh --prefix /usr/local
+    curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/QCDLab/mchep/refs/heads/master/install-capi.sh | sh
+    ```
+
+    To pass the installation directory for where to put the files, change the arguments of the shell as follows:
+
+    ```bash
+    .. | sh -s -- --prefix /custom/installation/path
+    ```
+
+    By default, the script will download the latest stable release. If you would like a specific
+    version, pass the version along with `--version`:
+
+    ```bash
+    .. | sh -s -- --version 0.1.0
     ```
 
     This script automatically detects your platform, downloads the correct tarball from GitHub, and configures the `pkg-config` files.
 
-=== "Development (Source)"
+=== "Development"
 
     To build from source, you need `cargo` and `cargo-c`:
 
@@ -87,7 +94,7 @@ pkg-config mchep_capi --libs --cflags
 
 ## Python API
 
-=== "Default (Pip)"
+=== "Default"
 
     Install the latest version from PyPI:
 
@@ -95,7 +102,7 @@ pkg-config mchep_capi --libs --cflags
     pip install mchep
     ```
 
-=== "Development (Maturin)"
+=== "Development"
 
     To build the Python extension from source, you need `maturin`:
 

@@ -9,8 +9,8 @@ the paper [arXiv:2009.05112](https://arxiv.org/pdf/2009.05112).
 ## Performance
 
 The following benchmark compares MCHEP against the [CUBA](https://feynarts.de/cuba/)
-library across different integrand complexities, simulating typical High Energy Physics (HEP)
-workloads:
+library across different integrand complexities, simulating typical High Energy Physics
+(HEP) workloads:
 
 ![MCHEP vs CUBA Scaling Benchmark](benchmark_scaling.png)
 
