@@ -32,9 +32,9 @@ to days.
 
 ## Feature Availability
 
-| Feature | Rust API (Vegas) | Rust API (VegasPlus) | C/C++ API (Vegas) | C/C++ API (VegasPlus) | Python API (Vegas) | Python API (VegasPlus) |
+| Feature | Rust API (Vegas) | Rust API (Vegas+) | C/C++ API (Vegas) | C/C++ API (Vegas+) | Python API (Vegas) | Python API (Vegas+) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| Multi-threaded (Rayon) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Multi-threaded | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | SIMD | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | GPU | ✓ | ✓ | | | | |
 | MPI | | ✓ | | ✓ | | ✓ |
