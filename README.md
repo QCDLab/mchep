@@ -8,6 +8,15 @@
   the paper <a href="https://arxiv.org/pdf/2009.05112">arXiv:2009.05112</a>.
 </p>
 
+<h2>Documentation</h2>
+
+<ul>
+  <li><a href="https://qcdlab.github.io/mchep/">Documentation</a></li>
+  <li><a href="https://qcdlab.github.io/mchep/building/">Installation Instructions</a></li>
+  <li><a href="https://qcdlab.github.io/mchep/tutorials/">Rust/C++/Python Tutorials</a></li>
+  <li><a href="https://qcdlab.github.io/mchep/SIMD_TUTORIAL/">SIMD Integration</a></li>
+</ul>
+
 <h2>Performance</h2>
 
 <p align="justify">
@@ -137,12 +146,3 @@
   </tr>
 </table>
 </div>
-
-<h2>Documentation</h2>
-
-<ul>
-  <li><a href="https://qcdlab.github.io/mchep/">Documentation</a></li>
-  <li><a href="https://qcdlab.github.io/mchep/building/">Installation Instructions</a></li>
-  <li><a href="https://qcdlab.github.io/mchep/tutorials/">Rust/C++/Python Tutorials</a></li>
-  <li><a href="https://qcdlab.github.io/mchep/SIMD_TUTORIAL/">SIMD Integration</a></li>
-</ul>
