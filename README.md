@@ -84,11 +84,11 @@
   <tr>
     <th></th>
     <th>Vegas</th>
-    <th>VegasPlus</th>
+    <th>Vegas+</th>
     <th>Vegas</th>
-    <th>VegasPlus</th>
+    <th>Vegas+</th>
     <th>Vegas</th>
-    <th>VegasPlus</th>
+    <th>Vegas+</th>
   </tr>
   <tr>
     <td>Multi-threaded (Rayon)</td>
