@@ -5,6 +5,8 @@ resolver = "2"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+authors = ["Tanjona R. Rabemananjara <tanjona.hepc@gmail.com>"]
+description = "Highly parallelizable Monte Carlo integration routine with SIMD and GPU acceleration"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/tanjona/mchep"
 categories = ["science", "algorithms"]

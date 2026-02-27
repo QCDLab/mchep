@@ -1,7 +1,7 @@
 [package]
 name = "mchep_capi"
-authors = ["Tanjona R. Rabemananjara <tanjona.hepc@gmail.com>"]
-description = "C language interface to NeoPDF"
+authors.workspace = true
+description = "C language interface to MCHEP"
 readme = "README.md"
 build = "build.rs"
 
