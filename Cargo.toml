@@ -13,15 +13,15 @@ keywords = ["monte-carlo", "integration", "physics"]
 [workspace.dependencies]
 rand = "0.8.5"
 rand_pcg = "0.3.1"
-rayon = "1.8.0"
-itertools = "0.12.0"
-thiserror = "1.0.56"
-num-traits = "0.2.17"
+rayon = "1.11.0"
+itertools = "0.12.1"
+thiserror = "1.0.69"
+num-traits = "0.2.19"
 cust = "0.3.2"
 mpi = "0.7"
-pyo3 = "0.21.2"
+pyo3 = "0.27"
 rust-version = "1.82.0"
-wide = "0.7.5"
+wide = "0.7.33"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }

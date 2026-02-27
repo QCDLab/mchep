@@ -14,7 +14,7 @@ use wide::f64x4;
 // A wrapper for Python callables to implement the Integrand trait
 #[pyclass(name = "Integrand")]
 struct PyIntegrand {
-    callable: PyObject,
+    callable: Py<PyAny>,
     dim: usize,
 }
 
@@ -24,8 +24,8 @@ impl Integrand for PyIntegrand {
     }
 
     fn eval(&self, x: &[f64]) -> f64 {
-        Python::with_gil(|py| {
-            let args = (PyList::new_bound(py, x),);
+        Python::attach(|py| {
+            let args = (PyList::new(py, x).unwrap(),);
             self.callable
                 .call1(py, args)
                 .and_then(|result| result.extract::<f64>(py))
@@ -44,7 +44,7 @@ unsafe impl Sync for PyIntegrand {}
 #[pymethods]
 impl PyIntegrand {
     #[new]
-    fn new(callable: PyObject, dim: usize) -> Self {
+    fn new(callable: Py<PyAny>, dim: usize) -> Self {
         PyIntegrand { callable, dim }
     }
 }
@@ -52,7 +52,7 @@ impl PyIntegrand {
 // A wrapper for Python callables to implement the SimdIntegrand trait
 #[pyclass(name = "SimdIntegrand")]
 struct PySimdIntegrand {
-    callable: PyObject,
+    callable: Py<PyAny>,
     dim: usize,
 }
 
@@ -62,10 +62,10 @@ impl SimdIntegrand for PySimdIntegrand {
     }
 
     fn eval_simd(&self, points: &[f64x4]) -> f64x4 {
-        Python::with_gil(|py| {
-            let py_points = PyList::empty_bound(py);
+        Python::attach(|py| {
+            let py_points = PyList::empty(py);
             for d in 0..self.dim {
-                let point_dim = PyList::new_bound(py, &points[d].to_array());
+                let point_dim = PyList::new(py, &points[d].to_array()).unwrap();
                 py_points.append(point_dim).unwrap();
             }
 
@@ -96,7 +96,7 @@ unsafe impl Sync for PySimdIntegrand {}
 #[pymethods]
 impl PySimdIntegrand {
     #[new]
-    fn new(callable: PyObject, dim: usize) -> Self {
+    fn new(callable: Py<PyAny>, dim: usize) -> Self {
         PySimdIntegrand { callable, dim }
     }
 }
@@ -179,14 +179,14 @@ impl PyVegas {
         integrand: &PyIntegrand,
         target_accuracy: Option<f64>,
     ) -> PyVegasResult {
-        py.allow_threads(|| self.vegas.integrate(integrand, target_accuracy).into())
+        py.detach(|| self.vegas.integrate(integrand, target_accuracy).into())
     }
 
     #[pyo3(signature = (callable, target_accuracy = None))]
     fn integrate(
         &mut self,
         py: Python,
-        callable: PyObject,
+        callable: Py<PyAny>,
         target_accuracy: Option<f64>,
     ) -> PyResult<PyVegasResult> {
         if !callable.bind(py).is_callable() {
@@ -198,7 +198,7 @@ impl PyVegas {
             dim: self.dim,
         };
 
-        Ok(py.allow_threads(|| self.vegas.integrate(&integrand, target_accuracy).into()))
+        Ok(py.detach(|| self.vegas.integrate(&integrand, target_accuracy).into()))
     }
 
     #[pyo3(signature = (integrand, target_accuracy = None))]
@@ -208,14 +208,14 @@ impl PyVegas {
         integrand: &PySimdIntegrand,
         target_accuracy: Option<f64>,
     ) -> PyVegasResult {
-        py.allow_threads(|| self.vegas.integrate_simd(integrand, target_accuracy).into())
+        py.detach(|| self.vegas.integrate_simd(integrand, target_accuracy).into())
     }
 
     #[pyo3(signature = (callable, target_accuracy = None))]
     fn integrate_simd(
         &mut self,
         py: Python,
-        callable: PyObject,
+        callable: Py<PyAny>,
         target_accuracy: Option<f64>,
     ) -> PyResult<PyVegasResult> {
         if !callable.bind(py).is_callable() {
@@ -227,7 +227,7 @@ impl PyVegas {
             dim: self.dim,
         };
 
-        Ok(py.allow_threads(|| {
+        Ok(py.detach(|| {
             self.vegas
                 .integrate_simd(&integrand, target_accuracy)
                 .into()
@@ -280,7 +280,7 @@ impl PyVegasPlus {
         integrand: &PyIntegrand,
         target_accuracy: Option<f64>,
     ) -> PyVegasResult {
-        py.allow_threads(|| {
+        py.detach(|| {
             self.vegas_plus
                 .integrate(integrand, target_accuracy)
                 .into()
@@ -291,7 +291,7 @@ impl PyVegasPlus {
     fn integrate(
         &mut self,
         py: Python,
-        callable: PyObject,
+        callable: Py<PyAny>,
         target_accuracy: Option<f64>,
     ) -> PyResult<PyVegasResult> {
         if !callable.bind(py).is_callable() {
@@ -303,7 +303,7 @@ impl PyVegasPlus {
             dim: self.dim,
         };
 
-        Ok(py.allow_threads(|| {
+        Ok(py.detach(|| {
             self.vegas_plus
                 .integrate(&integrand, target_accuracy)
                 .into()
@@ -317,7 +317,7 @@ impl PyVegasPlus {
         integrand: &PySimdIntegrand,
         target_accuracy: Option<f64>,
     ) -> PyVegasResult {
-        py.allow_threads(|| {
+        py.detach(|| {
             self.vegas_plus
                 .integrate_simd(integrand, target_accuracy)
                 .into()
@@ -328,7 +328,7 @@ impl PyVegasPlus {
     fn integrate_simd(
         &mut self,
         py: Python,
-        callable: PyObject,
+        callable: Py<PyAny>,
         target_accuracy: Option<f64>,
     ) -> PyResult<PyVegasResult> {
         if !callable.bind(py).is_callable() {
@@ -340,7 +340,7 @@ impl PyVegasPlus {
             dim: self.dim,
         };
 
-        Ok(py.allow_threads(|| {
+        Ok(py.detach(|| {
             self.vegas_plus
                 .integrate_simd(&integrand, target_accuracy)
                 .into()
@@ -359,7 +359,7 @@ impl PyVegasPlus {
 
         // NOTE: MPI initialization should typically happen once at program start
         // This may cause issues if called multiple times.
-        py.allow_threads(|| {
+        py.detach(|| {
             let universe = mpi::initialize().unwrap();
             let world = universe.world();
             self.vegas_plus
@@ -373,7 +373,7 @@ impl PyVegasPlus {
     fn integrate_mpi(
         &mut self,
         py: Python,
-        callable: PyObject,
+        callable: Py<PyAny>,
         target_accuracy: Option<f64>,
     ) -> PyResult<PyVegasResult> {
         
@@ -387,7 +387,7 @@ impl PyVegasPlus {
             dim: self.dim,
         };
 
-        Ok(py.allow_threads(|| {
+        Ok(py.detach(|| {
             let universe = mpi::initialize().unwrap();
             let world = universe.world();
             self.vegas_plus
@@ -421,7 +421,7 @@ impl PyVegasPlus {
 ///
 /// Raises an error if the (sub)module is not found or cannot be registered.
 pub fn register(parent_module: &Bound<'_, PyModule>) -> PyResult<()> {
-    let m = PyModule::new_bound(parent_module.py(), "vegas")?;
+    let m = PyModule::new(parent_module.py(), "vegas")?;
     m.setattr(pyo3::intern!(m.py(), "__doc__"), "Interface to Vegas")?;
     pyo3::py_run!(
         parent_module.py(),
