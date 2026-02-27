@@ -13,7 +13,7 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-mchep = { path = "../mchep" }
+mchep = { path = "../mchep", version = "0.1.0" }
 wide = { workspace = true }
 mpi = { workspace = true, optional = true }
 
