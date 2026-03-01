@@ -3799,7 +3799,7 @@ dependencies = [
 
 [[package]]
 name = "mchep"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "assert_approx_eq",
  "burn",
@@ -3817,7 +3817,7 @@ dependencies = [
 
 [[package]]
 name = "mchep_capi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cbindgen",
  "mchep",
@@ -3827,7 +3827,7 @@ dependencies = [
 
 [[package]]
 name = "mchep_pyapi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "mchep",
  "mpi",
