@@ -6,7 +6,7 @@ use rayon::prelude::*;
 use wide::f64x4;
 
 use crate::grid::Grid;
-use crate::integrand::{Integrand, SimdIntegrand};
+use crate::integrand::{Integrand, ObservableIntegrand, SimdIntegrand};
 use crate::vegas::VegasResult;
 
 #[cfg(feature = "gpu")]
@@ -156,6 +156,96 @@ impl VegasPlus {
             if iter > 0 {
                 iter_results.push(iter_val);
                 iter_errors.push(iter_err);
+
+                if let Some(acc_req) = target_accuracy {
+                    if !iter_results.is_empty() {
+                        let current_result = self.combine_results(&iter_results, &iter_errors);
+                        if current_result.value != 0.0 {
+                            let current_acc =
+                                (current_result.error / current_result.value.abs()) * 100.0;
+                            if current_acc < acc_req {
+                                return current_result;
+                            }
+                        }
+                    }
+                }
+            }
+
+            for grid in &mut self.grids {
+                grid.refine();
+            }
+            self.reallocate_samples();
+        }
+
+        self.combine_results(&iter_results, &iter_errors)
+    }
+
+    /// Integrates the given function using the VEGAS+ algorithm, recording
+    /// the auxiliary per-point observations emitted by an
+    /// [`ObservableIntegrand`] alongside the usual scalar estimate.
+    ///
+    /// `on_iteration` is called once per counted iteration (the first,
+    /// "warm-up" iteration is excluded, matching [`Self::integrate`]) with
+    /// that iteration's observations, so a caller can drain them (e.g. into
+    /// a `PineAPPL` grid) without buffering more than one iteration's worth
+    /// at a time.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mchep::vegasplus::VegasPlus;
+    /// use mchep::integrand::ObservableIntegrand;
+    ///
+    /// struct MyIntegrand;
+    ///
+    /// impl ObservableIntegrand for MyIntegrand {
+    ///     type Observation = f64;
+    ///
+    ///     fn dim(&self) -> usize {
+    ///         2
+    ///     }
+    ///
+    ///     fn eval(&self, x: &[f64], fill_weight: f64) -> (f64, Vec<f64>) {
+    ///         let value = (-(x[0].powi(2)) - x[1].powi(2)).exp();
+    ///         (value, vec![value * fill_weight])
+    ///     }
+    /// }
+    ///
+    /// let integrand = MyIntegrand;
+    /// let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
+    /// let mut vegas_plus = VegasPlus::new(10, 20_000, 50, 0.5, 4, 0.75, boundaries);
+    /// vegas_plus.set_seed(1234);
+    /// let mut total_observed = 0.0;
+    /// let result = vegas_plus.integrate_with_observations(&integrand, None, |obs| {
+    ///     total_observed += obs.iter().sum::<f64>();
+    /// });
+    ///
+    /// assert!((result.value - 2.230985).abs() < 3. * result.error);
+    /// assert!((total_observed - result.value).abs() < 3. * result.error);
+    /// ```
+    pub fn integrate_with_observations<F, T>(
+        &mut self,
+        integrand: &F,
+        target_accuracy: Option<f64>,
+        mut on_iteration: impl FnMut(Vec<T>),
+    ) -> VegasResult
+    where
+        F: ObservableIntegrand<Observation = T> + Sync,
+        T: Send,
+    {
+        assert_eq!(integrand.dim(), self.dim);
+
+        let mut iter_results = Vec::new();
+        let mut iter_errors = Vec::new();
+
+        for iter in 0..self.n_iter {
+            let (iter_val, iter_err, observations) =
+                self.run_iteration_with_observations(integrand);
+
+            if iter > 0 {
+                iter_results.push(iter_val);
+                iter_errors.push(iter_err);
+                on_iteration(observations);
 
                 if let Some(acc_req) = target_accuracy {
                     if !iter_results.is_empty() {
@@ -614,7 +704,153 @@ impl VegasPlus {
         (total_value, error)
     }
 
-    pub(crate) fn run_iteration_simd<F: SimdIntegrand + Sync>(&mut self, integrand: &F) -> (f64, f64) {
+    /// Like [`Self::run_iteration`], but for an [`ObservableIntegrand`]:
+    /// also returns the flattened observations from every point sampled
+    /// this iteration.
+    fn run_iteration_with_observations<F, T>(&mut self, integrand: &F) -> (f64, f64, Vec<T>)
+    where
+        F: ObservableIntegrand<Observation = T> + Sync,
+        T: Send,
+    {
+        for grid in &mut self.grids {
+            grid.reset_importance_data();
+        }
+
+        let n_bins = self.grids[0].n_bins();
+        let hypercube_volume = (1.0 / self.n_strat as f64).powi(self.dim as i32);
+        // The first ("warm-up") iteration is excluded from the final
+        // result by both `integrate` and `integrate_with_observations`
+        // (see their `if iter > 0` gating), so observations should be
+        // normalized by the number of iterations that actually get
+        // counted, not `self.n_iter` itself.
+        let n_counted_iters = self.n_iter.saturating_sub(1).max(1);
+
+        let seeds: Vec<u64> = (0..self.hypercubes.len()).map(|_| self.rng.gen()).collect();
+
+        struct HypercubeObsResult<T> {
+            sum_f: f64,
+            sum_f2: f64,
+            variance: f64,
+            d_updates: Vec<Vec<f64>>,
+            observations: Vec<T>,
+        }
+
+        let results: Vec<HypercubeObsResult<T>> = seeds
+            .into_par_iter()
+            .enumerate()
+            .map(|(h_idx, seed)| {
+                let mut seed_array = [0u8; 32];
+                seed_array[..8].copy_from_slice(&seed.to_le_bytes());
+                let mut thread_rng = Pcg64::from_seed(seed_array);
+                let n_samples_h = self.hypercubes[h_idx].n_samples;
+                let mut point = vec![0.0; self.dim];
+                let mut bin_indices = vec![0; self.dim];
+                let mut d_updates_thread =
+                    (0..self.dim).map(|_| vec![0.0; n_bins]).collect::<Vec<_>>();
+
+                let mut sum_f_h = 0.0;
+                let mut sum_f2_h = 0.0;
+                let mut observations = Vec::new();
+
+                if n_samples_h == 0 {
+                    return HypercubeObsResult {
+                        sum_f: 0.0,
+                        sum_f2: 0.0,
+                        variance: 0.0,
+                        d_updates: d_updates_thread,
+                        observations,
+                    };
+                }
+
+                for _ in 0..n_samples_h {
+                    let mut jacobian = 1.0;
+                    let mut y_vec = vec![0.0; self.dim];
+
+                    let h_coords = self.get_hypercube_coords(h_idx);
+                    for d in 0..self.dim {
+                        let y_rand = thread_rng.gen::<f64>();
+                        let strat_width = 1.0 / self.n_strat as f64;
+                        y_vec[d] = (h_coords[d] as f64 + y_rand) * strat_width;
+                    }
+
+                    for d in 0..self.dim {
+                        let (bin_idx, x_unit, jac_vegas) = self.grids[d].map(y_vec[d]);
+                        jacobian *= jac_vegas;
+                        bin_indices[d] = bin_idx;
+
+                        let (min, max) = self.boundaries[d];
+                        let jac_boundary = max - min;
+                        point[d] = min + x_unit * jac_boundary;
+                        jacobian *= jac_boundary;
+                    }
+
+                    let fill_weight =
+                        jacobian * hypercube_volume / n_samples_h as f64 / n_counted_iters as f64;
+                    let (f_val, point_observations) = integrand.eval(&point, fill_weight);
+                    let weighted_f = f_val * jacobian;
+                    sum_f_h += weighted_f;
+                    sum_f2_h += weighted_f * weighted_f;
+                    observations.extend(point_observations);
+
+                    let d_val = (weighted_f * weighted_f) / self.n_eval as f64;
+                    for d in 0..self.dim {
+                        d_updates_thread[d][bin_indices[d]] += d_val;
+                    }
+                }
+
+                let avg_f_h = sum_f_h / n_samples_h as f64;
+                let avg_f2_h = sum_f2_h / n_samples_h as f64;
+                let var_g_h = (avg_f2_h - avg_f_h.powi(2)).max(0.0)
+                    * (n_samples_h as f64 / (n_samples_h - 1).max(1) as f64);
+
+                HypercubeObsResult {
+                    sum_f: sum_f_h,
+                    sum_f2: sum_f2_h,
+                    variance: var_g_h.sqrt(),
+                    d_updates: d_updates_thread,
+                    observations,
+                }
+            })
+            .collect();
+
+        let mut total_value = 0.0;
+        let mut total_variance = 0.0;
+        let mut all_observations = Vec::new();
+
+        for (h_idx, result) in results.into_iter().enumerate() {
+            let n_samples_h = self.hypercubes[h_idx].n_samples;
+
+            if n_samples_h > 0 {
+                let avg_g_h = result.sum_f / n_samples_h as f64;
+                total_value += hypercube_volume * avg_g_h;
+            }
+
+            if n_samples_h > 1 {
+                let avg_g_h = result.sum_f / n_samples_h as f64;
+                let avg_g2_h = result.sum_f2 / n_samples_h as f64;
+                let var_g_h = (avg_g2_h - avg_g_h.powi(2)).max(0.0)
+                    * (n_samples_h as f64 / (n_samples_h - 1) as f64);
+                total_variance += hypercube_volume.powi(2) * var_g_h / n_samples_h as f64;
+            }
+
+            self.hypercubes[h_idx].variance = result.variance;
+            for d in 0..self.dim {
+                for i in 0..n_bins {
+                    self.grids[d].d[i] += result.d_updates[d][i];
+                }
+            }
+            all_observations.extend(result.observations);
+        }
+
+        let error = total_variance.sqrt();
+
+        (total_value, error, all_observations)
+    }
+
+    pub(crate) fn run_iteration_simd<F: SimdIntegrand + Sync>(
+        &mut self,
+        integrand: &F,
+    ) -> (f64, f64) {
         for grid in &mut self.grids {
             grid.reset_importance_data();
         }

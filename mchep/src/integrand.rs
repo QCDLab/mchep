@@ -21,6 +21,38 @@ pub trait Integrand {
     fn eval(&self, x: &[f64]) -> f64;
 }
 
+/// A trait for integrands that, alongside the scalar value driving the
+/// VEGAS/VEGAS+ importance-sampling estimator, also emit a side-channel of
+/// auxiliary per-point observations -- for example, differential-grid fills
+/// for a downstream interpolation grid (as used by e.g. `PineAPPL` in HEP
+/// cross-section calculations), where every sampled point needs to be
+/// recorded individually rather than only contributing to a single running
+/// total.
+pub trait ObservableIntegrand {
+    /// The type of a single auxiliary observation recorded per point.
+    type Observation: Send;
+
+    /// Returns the number of dimensions of the integration space.
+    fn dim(&self) -> usize;
+
+    /// Evaluates the function at `x`.
+    ///
+    /// `fill_weight` is this point's total Monte Carlo weight: the
+    /// VEGAS/VEGAS+ jacobian already normalized by this point's share of
+    /// its hypercube's sample count and by the number of iterations
+    /// contributing to the final result. Summing `fill_weight` (or any
+    /// quantity proportional to it, e.g. a per-channel piece of `f(x)`)
+    /// over every point across every counted iteration reproduces the same
+    /// total the integrator itself reports. Implementations that need to
+    /// record a differential quantity at `x` should scale their own
+    /// per-observation weights by this value rather than re-deriving it.
+    ///
+    /// Returns the scalar value `f(x)` (unweighted, matching
+    /// [`Integrand::eval`]) together with any observations to record at
+    /// this point.
+    fn eval(&self, x: &[f64], fill_weight: f64) -> (f64, Vec<Self::Observation>);
+}
+
 /// A trait representing a function to be integrated using SIMD.
 pub trait SimdIntegrand {
     /// Returns the number of dimensions of the integration space.
