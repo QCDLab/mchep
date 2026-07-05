@@ -1126,6 +1126,7 @@ mod tests {
         let integrand = GaussianIntegrand;
         let boundaries = &[(-1.0, 1.0), (-1.0, 1.0)];
         let mut vegas_plus = VegasPlus::new(20, 200_000, 50, 0.5, 4, 0.75, boundaries);
+        vegas_plus.set_seed(1234);
         let result = vegas_plus.integrate(&integrand, None);
         assert!(
             (result.value - ANALYTICAL_RESULT).abs() < 2.5 * result.error,
