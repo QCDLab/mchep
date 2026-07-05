@@ -146,3 +146,16 @@
   </tr>
 </table>
 </div>
+
+<h2>Citation</h2>
+
+<table><tr>
+<td valign="middle">If you are using <b>MCHEP</b>, please cite the software</td>
+<td valign="middle">
+  <a href="https://doi.org/10.5281/zenodo.21206364"><img
+        alt="Crates.io"
+        src="https://zenodo.org/badge/DOI/10.5281/zenodo.21206364.svg?style=for-the-badge&logo=zenodo"
+        height="20"
+  /></a>
+</td>
+</tr></table>
