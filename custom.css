@@ -1,0 +1,185 @@
+/* Symbolica-inspired: clean, modern light documentation style */
+
+/* Import a clean modern font */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif;
+  font-size: 0.82rem;
+  font-weight: 400;
+  color: #3b4252;
+  background-color: #ffffff;
+}
+
+.md-content__inner {
+  max-width: 80ch;
+}
+
+/* Justify all paragraphs and list items globally and reduce spacing */
+.md-content__inner p,
+.md-content__inner li {
+  text-align: justify;
+  margin-bottom: 0.6em !important;
+}
+
+/* Clean typography - section titles bold and dark */
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Inter', sans-serif;
+  font-weight: 700 !important;
+  letter-spacing: -0.025em;
+  color: #2e3440 !important;
+}
+
+h1 { font-size: 1.4rem; margin-top: 0; margin-bottom: 0.2rem !important; }
+h2 { font-size: 1.15rem; margin-top: 0.8rem !important; margin-bottom: 0.2rem !important; padding-bottom: 0.2rem; border-bottom: 1px solid rgba(0,0,0,0.06); }
+h3 { font-size: 1.0rem; margin-top: 0.7rem !important; margin-bottom: 0.1rem !important; }
+
+/* Links - clean, understated */
+a {
+  color: var(--md-typeset-a-color);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+a:hover {
+  color: var(--md-accent-fg-color);
+}
+
+/* Feature grid - clean cards with subtle borders */
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.25rem;
+  margin: 2rem 0;
+}
+
+.feature-card {
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 8px;
+  padding: 1.25rem;
+  height: 100%;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  background: #ffffff;
+}
+
+.feature-card:hover {
+  border-color: rgba(99, 102, 241, 0.4);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+/* Alternative: Simple flexbox approach */
+.feature-grid-simple {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.feature-grid-simple .feature-card {
+  flex: 1 1 300px;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 8px;
+  padding: 1.25rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  background: #ffffff;
+}
+
+.feature-grid-simple .feature-card:hover {
+  border-color: rgba(99, 102, 241, 0.4);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+/* TOC: grey until selected, highlight when active */
+.md-nav__link {
+  color: #6e7781 !important;
+  font-weight: 400 !important;
+  font-size: 0.75rem;
+}
+.md-nav__link:hover {
+  color: #2e3440 !important;
+}
+.md-nav__link--active {
+  color: var(--md-accent-fg-color) !important;
+  font-weight: 600 !important;
+}
+
+/* Navigation section titles - grey, non-bold */
+.md-nav__title {
+  font-weight: 600 !important;
+  font-size: 0.75rem;
+  color: #2e3440 !important;
+}
+
+/* Hide Jupyter input/output prompts in mkdocs-jupyter */
+.jp-InputPrompt, .jp-OutputPrompt, .prompt, .nbinput .prompt, .nboutput .prompt {
+    display: none !important;
+}
+
+/* Code snippet font size - slightly reduced */
+div.nbinput .input_area pre,
+div.input_area pre,
+div.jp-InputArea-editor,
+div.jp-CodeCell .jp-InputArea-editor,
+div.highlight pre,
+pre {
+    font-size: 0.75rem !important;
+}
+
+/* Header bar - white for clean look */
+.md-header {
+  background-color: #ffffff !important;
+  color: #2e3440 !important;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+
+/* Ensure header icons and social links are dark on white background */
+.md-header .md-icon,
+.md-header__button,
+.md-header__social .md-social__link svg {
+  color: #4c566a !important;
+}
+
+/* Footer - light clear style instead of dark black */
+.md-footer {
+  background-color: #ffffff !important;
+  color: #4c566a !important;
+  border-top: 1px solid rgba(0,0,0,0.06);
+}
+
+.md-footer-meta {
+  background-color: #f8f9fb !important;
+}
+
+.md-footer__link {
+  color: #4c566a !important;
+}
+
+.md-footer__title {
+  color: #2e3440 !important;
+}
+
+.md-footer__direction {
+  color: #6e7781 !important;
+}
+
+/* Header logo: increase size and hide site name next to it */
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+  height: 1.8rem;
+  width: auto;
+}
+
+/* Code blocks - remove extra borders, clean styling */
+.highlight {
+  border-radius: 6px;
+  background-color: #f8f9fb !important;
+  border: 1px solid rgba(0,0,0,0.04) !important;
+}
+
+/* Tables - clean borders */
+.md-typeset table:not([class]) {
+  border-radius: 6px;
+  border: 1px solid rgba(0,0,0,0.06);
+  box-shadow: none;
+}
