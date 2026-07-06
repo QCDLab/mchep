@@ -154,8 +154,8 @@
 <td valign="middle">
   <a href="https://doi.org/10.5281/zenodo.21206364"><img
         alt="Crates.io"
-        src="https://zenodo.org/badge/DOI/10.5281/zenodo.21206364.svg?style=for-the-badge&logo=zenodo"
-        height="20"
+        src="https://img.shields.io/badge/DOI-10.5281%2Fzenodo.21206364-blue.svg?style=for-the-badge&logo=zenodo"
+        height="25"
   /></a>
 </td>
 </tr></table>
